@@ -1,0 +1,22 @@
+[Unit]
+Description=MaNGOS Zero realmd (authentication)
+After=network-online.target mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mangos
+Group=mangos
+WorkingDirectory=/home/mangos/mangos/zero/bin
+ExecStart=/home/mangos/mangos/zero/bin/realmd -c /home/mangos/mangos/zero/etc/realmd.conf
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=false
+ReadWritePaths=/home/mangos/mangos
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,25 @@
+[Unit]
+Description=MaNGOS %i world server
+After=network-online.target mariadb.service mangos-realmd.service
+Wants=network-online.target
+Requires=mangos-realmd.service
+
+[Service]
+Type=simple
+User=mangos
+Group=mangos
+WorkingDirectory=/home/mangos/mangos/%i/bin
+ExecStart=/home/mangos/mangos/%i/bin/mangosd -c /home/mangos/mangos/%i/etc/mangosd.conf
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=120
+TimeoutStopSec=300
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=false
+ReadWritePaths=/home/mangos/mangos
+
+[Install]
+WantedBy=multi-user.target
