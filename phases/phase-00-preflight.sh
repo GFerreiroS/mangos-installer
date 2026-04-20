@@ -72,7 +72,10 @@ _preflight_system_checks() {
   if curl -fsSL --max-time 10 --head https://github.com >/dev/null 2>&1; then
     ui_status_ok "network: GitHub reachable"
   else
-    die "network check failed: cannot reach https://github.com"
+    die "network check failed: cannot reach https://github.com
+    - check DNS: cat /etc/resolv.conf
+    - check proxy:    echo \$http_proxy \$https_proxy
+    - check firewall: the installer needs outbound 443 to github.com and openssl.org"
   fi
 }
 
@@ -84,7 +87,9 @@ _preflight_prompt_realm() {
   local core
   core=$(ui_prompt_choice "MaNGOS core" "zero" "MANGOS_REALM_CORE" zero one two three)
   if ! core_supported "$core"; then
-    die "core '$core' is not yet implemented — $(core_describe "$core")"
+    die "core '$core' is not yet implemented
+    $(core_describe "$core")
+    see lib/cores.sh for the porting checklist; contributions welcome"
   fi
   MANGOS_REALM_CORE="$core"
 
@@ -108,6 +113,23 @@ _preflight_prompt_realm() {
   fi
   if (( MANGOS_REALM_WORLD_PORT < 1024 )) || (( MANGOS_REALM_WORLD_PORT > 65535 )); then
     die "world port '$MANGOS_REALM_WORLD_PORT' out of range (1024-65535)"
+  fi
+  # Pre-check: warn if auth port 3724 or the chosen world port is already
+  # bound. Phase 14 would catch this later but the error is clearer now.
+  if port_in_use 3724; then
+    ui_status_warn "port 3724 (auth) is already in use on this host"
+    ui_status_warn "  sudo ss -lntp sport = :3724   # to see what owns it"
+    if ! ui_prompt_yes_no "continue anyway? (phase 14 will fail if it stays bound)" \
+                          "no" "MANGOS_ALLOW_PORT_COLLISION"; then
+      die "aborted due to port 3724 collision"
+    fi
+  fi
+  if port_in_use "$MANGOS_REALM_WORLD_PORT"; then
+    ui_status_warn "world port $MANGOS_REALM_WORLD_PORT is already in use"
+    if ! ui_prompt_yes_no "continue anyway? (phase 14 will fail if it stays bound)" \
+                          "no" "MANGOS_ALLOW_PORT_COLLISION"; then
+      die "aborted due to port $MANGOS_REALM_WORLD_PORT collision"
+    fi
   fi
 
   export MANGOS_REALM_CORE MANGOS_REALM_NAME MANGOS_REALM_DISPLAY MANGOS_REALM_ADDRESS MANGOS_REALM_WORLD_PORT

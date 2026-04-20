@@ -38,7 +38,9 @@ _add_realm_collect_identity() {
 
   core=$(ui_prompt_choice "MaNGOS core" "zero" "MANGOS_REALM_CORE" zero one two three)
   if ! core_supported "$core"; then
-    die "core '$core' is not yet implemented — $(core_describe "$core")"
+    die "core '$core' is not yet implemented
+    $(core_describe "$core")
+    see lib/cores.sh for the porting checklist; contributions welcome"
   fi
 
   # Prevent clobbering an existing realm.

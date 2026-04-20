@@ -43,6 +43,17 @@ run_phase_08() {
   parallel=$(platform_build_parallelism)
   ui_status_info "build parallelism: -j${parallel}"
 
+  # Pre-check: mangos build needs ~6 GB free. Fail now instead of 20
+  # minutes into the compile when ld runs out of space linking libmangos.
+  local disk_gb
+  disk_gb=$(platform_disk_gb "$realm_dir")
+  if [[ "${disk_gb:-0}" -lt 6 ]]; then
+    die "insufficient disk at $realm_dir: ${disk_gb}GB free (build needs >= 6GB)
+    - phase 8 compiles the mangos server, phase 12 extracts ~8GB of map data
+    - free up space (e.g., docker system prune, apt clean) then --flow=resume"
+  fi
+  ui_status_ok "disk free at $realm_dir: ${disk_gb}GB"
+
   local -a extra_flags
   mapfile -t extra_flags < <(core_cmake_flags "$MANGOS_REALM_CORE") \
     || die "no CMake flags for core '$MANGOS_REALM_CORE'"

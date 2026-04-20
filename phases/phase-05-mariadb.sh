@@ -55,11 +55,21 @@ _phase_05_load_admin_password() {
 
 _phase_05_local() {
   ui_status_info "ensuring mariadb service is enabled and running..."
-  systemctl enable --now mariadb >>"$MANGOS_LOG_FILE" 2>&1 \
-    || die "failed to enable mariadb.service (see $MANGOS_LOG_FILE)"
+  if ! systemctl enable --now mariadb >>"$MANGOS_LOG_FILE" 2>&1; then
+    die "failed to enable mariadb.service
+    - is mariadb-server installed? (phase 2 should install it in local mode)
+    - is systemd available? (Docker without systemd won't work here)
+    - last 30 lines of systemctl log:
+$(systemctl status --no-pager mariadb 2>&1 | tail -30)"
+  fi
 
   ui_status_info "waiting for mariadb socket..."
-  db_wait_ready 60 || die "mariadb did not become ready within 60s"
+  if ! db_wait_ready 60; then
+    die "mariadb did not become ready within 60s
+    - is the service actually running? 'systemctl status mariadb'
+    - check the MariaDB error log: /var/log/mysql/error.log
+    - on a fresh container, a stale socket under /run/mysqld/ can block startup"
+  fi
   ui_status_ok "mariadb is ready"
 
   _phase_05_harden_local
@@ -134,7 +144,15 @@ _phase_05_verify_mangos_user() {
 _phase_05_remote() {
   ui_status_info "connecting to remote DB at ${MANGOS_DB_HOST}:${MANGOS_DB_PORT}..."
   local version
-  version=$(db_version) || die "cannot connect to remote DB (see $MANGOS_LOG_FILE)"
+  if ! version=$(db_version); then
+    die "cannot connect to remote DB at ${MANGOS_DB_HOST}:${MANGOS_DB_PORT}
+    check, in order:
+    - is the DB server actually reachable? try 'nc -zv ${MANGOS_DB_HOST} ${MANGOS_DB_PORT}'
+    - are the admin credentials correct? (user '${MANGOS_DB_ADMIN_USER}')
+    - does the DB bind to the network? (MariaDB: 'bind-address = 0.0.0.0' in server.cnf)
+    - does a firewall allow inbound ${MANGOS_DB_PORT}/tcp from this host?
+    - does the DB account allow connections from this host? check 'Host' column of mysql.user"
+  fi
   ui_status_ok "remote DB version: $version"
 
   _phase_05_check_remote_version "$version"

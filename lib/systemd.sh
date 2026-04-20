@@ -44,6 +44,19 @@ systemd_have() {
     systemctl list-units --type=service --no-legend >/dev/null 2>&1
 }
 
+# port_in_use <port> — returns 0 if the TCP port is already bound on
+# this host. Used by phase 0 to warn about collisions before install.
+port_in_use() {
+  local port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -lnt "sport = :${port}" 2>/dev/null | tail -n +2 | grep -q .
+  elif command -v netstat >/dev/null 2>&1; then
+    netstat -lnt 2>/dev/null | awk '{print $4}' | grep -qE "[.:]${port}$"
+  else
+    return 1
+  fi
+}
+
 systemd_enable()  { systemctl enable  -- "$@" >/dev/null; }
 systemd_disable() { systemctl disable -- "$@" >/dev/null 2>&1 || true; }
 systemd_start()   { systemctl start   -- "$@"; }
