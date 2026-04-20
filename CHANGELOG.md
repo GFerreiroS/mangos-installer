@@ -8,6 +8,33 @@ The project follows the milestone plan in `CLAUDE.md`. Each milestone is a worki
 
 _(no work in flight)_
 
+## 1.0.0 — Milestone 5 (2026-04-20)
+
+Feature-complete. Polish pass on top of the M1–M4 foundation. The installer is ready to propose upstream per `CLAUDE.md` § 7 M5.
+
+### Added
+
+- **Core-stubs porting checklist.** `lib/cores.sh` ships with a numbered in-file checklist for the seven edits needed to wire up a new core (one/two/three). `core_describe()` points at the checklist in the user-visible message so the "not yet implemented" rejection is actionable. `flows/add-realm.sh` and `phases/phase-00-preflight.sh` rewrite their unsupported-core `die` messages to match.
+- **Port-in-use pre-check.** `lib/systemd.sh` gains `port_in_use <port>` (ss / netstat fallback). Phase 0 calls it for the auth port 3724 and the operator's chosen world port; collisions warn + confirm (`MANGOS_ALLOW_PORT_COLLISION=yes` pre-accepts). Phase 14 would still catch the issue later but the message now arrives before the 20–60 min build.
+- **Pre-existing-install-root detection.** Phase 1 refuses to scaffold on top of a non-empty `/home/mangos` that has no `.installer/` metadata (somebody else's files) and a non-empty `$MANGOS_ROOT` without an installer signature (manual tree). Both can be overridden via env vars (`MANGOS_REUSE_HOME=yes`, `MANGOS_REUSE_INSTALL_ROOT=yes`).
+- **Disk-free pre-check in phase 8.** 6 GB minimum at the realm dir; failure names concrete reclaim targets (`docker system prune`, `apt clean`) and a resume command. Prevents the 20-min-into-ld-then-ENOSPC scenario.
+- **DB migration tracking.** `lib/db.sh` ships `DB_MIGRATION_TABLE="_installer_db_version"` plus `db_ensure_migration_table` / `db_migration_has` / `db_migration_record`. Phase 7 inserts a marker for every `Updates/*.sql` it applies; `update-realm` now calls through the same helper so re-runs skip already-applied files instead of the previous blanket naive re-apply.
+- **`state.json` schema versioning.** The runner reads `schema_version` from any existing `state.json` and dies fast if it exceeds the version this installer emits. Lower existing versions are forward-compatible; `state_json_write` overwrites with the current schema on every phase.
+- **Error message polish pass.** The highest-traffic `die` calls (phase-5 local + remote connection failures, phase-0 network check, phase-8 disk pre-check, phase-1 pre-existing-home, and the core-stub rejections) now include concrete next steps (commands to run, logs to check, configuration to verify). The pattern is: problem → why it might have happened → ordered debugging ladder.
+- **README rewrite.** Badges, status line, supported-envs + supported-cores tables, non-interactive + management command sections, on-host layout diagram, troubleshooting, repository-owner setup (URL / version / fallback-ref), contributing guidelines, asciinema placeholder with the recommended recording command, acknowledgements with preserved community-fix credits.
+- **ARCHITECTURE.md final pass.** Flow dispatch rules, state.json schema versioning explanation, migration-marker-table description, explicit mention of the update-realm `ERR`-trap rollback mechanism.
+
+### Not included
+
+- **asciinema recording (`docs/demo.cast`)** is a manual artifact; the README documents the exact command to produce it. Commit when recorded.
+- **Cores one / two / three** remain stubs. The porting checklist in `lib/cores.sh` is the contribution surface.
+
+### Known limitations carried forward
+
+- `update-realm`'s auto rollback uses `DROP` + `CREATE` + `gunzip | mysql` for each DB. If the rollback itself fails midway, DBs can end up partially populated; backup tarballs are always preserved on disk for manual recovery.
+- Breaking schema changes in upstream's `database/*/Updates/*.sql` are not auto-migrated — the migration marker prevents re-applying the same file but cannot undo the damage a genuinely-broken update does. The post-update message still warns operators to check upstream release notes.
+- `state.json` regeneration has no writer coordination across concurrent installer runs; it was never designed for that. The single-writer assumption is documented here.
+
 ## 0.4.0-alpha — Milestone 4 (2026-04-20)
 
 Lifecycle management. Re-running `install.sh` against an existing install now shows a menu instead of re-prompting phase 0; the installer can add additional realms, update existing ones at the latest upstream ref (with pre-update backup and automatic rollback on failure), and uninstall individual realms or everything. A full non-interactive CLI surface lets all of the above be scripted.

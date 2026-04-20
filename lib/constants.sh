@@ -9,7 +9,7 @@ readonly INSTALLER_REPO_URL="https://github.com/GFerreiroS/mangos-installer"
 readonly INSTALLER_RAW_URL="https://raw.githubusercontent.com/GFerreiroS/mangos-installer"
 readonly INSTALLER_TARBALL_URL="https://github.com/GFerreiroS/mangos-installer/archive/refs/tags"
 readonly INSTALLER_TARBALL_MAIN="https://github.com/GFerreiroS/mangos-installer/archive/refs/heads/main.tar.gz"
-readonly INSTALLER_VERSION="0.4.0-alpha"
+readonly INSTALLER_VERSION="1.0.0"
 
 # --- Upstream MaNGOS ---
 readonly MANGOS_ZERO_REPO="https://github.com/mangoszero/server"

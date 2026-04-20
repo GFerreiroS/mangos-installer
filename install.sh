@@ -15,7 +15,7 @@ IFS=$'\n\t'
 INSTALLER_REPO_URL="https://github.com/GFerreiroS/mangos-installer"
 INSTALLER_TARBALL_URL="https://github.com/GFerreiroS/mangos-installer/archive/refs/tags"
 INSTALLER_TARBALL_MAIN="https://github.com/GFerreiroS/mangos-installer/archive/refs/heads/main.tar.gz"
-INSTALLER_VERSION="0.4.0-alpha"
+INSTALLER_VERSION="1.0.0"
 MIN_BASH_MAJOR=5
 MIN_BASH_MINOR=0
 

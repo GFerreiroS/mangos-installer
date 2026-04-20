@@ -394,5 +394,75 @@ sudo bash install.sh --dev-mode --non-interactive --flow=update-realm \
 
 Each command should succeed without any prompts.
 
-## Milestone 5 — _planned_
-See `CLAUDE.md` § 7 Milestone 5.
+## Milestone 5 — polish
+
+M5 is a polish pass rather than a new feature set; there is no single acceptance command. The verifications below exercise each new guard.
+
+### Port-in-use pre-check
+
+Bind port 3724 before running the installer:
+
+```bash
+nc -l 3724 &
+sudo bash install.sh --dev-mode
+```
+
+Expected: phase 0 prints `⚠ port 3724 (auth) is already in use on this host` and asks for confirmation. Answer `no` — installer dies with `aborted due to port 3724 collision`. `kill` the `nc` and re-run: phase 0 passes cleanly.
+
+### Pre-existing `/home/mangos` without mangos user
+
+```bash
+sudo mkdir -p /home/mangos/leftover && sudo touch /home/mangos/leftover/stuff.txt
+sudo bash install.sh --dev-mode
+```
+
+Expected: phase 1 warns about the non-empty home directory and asks to confirm. Pre-accept with `MANGOS_REUSE_HOME=yes sudo bash install.sh --dev-mode`.
+
+### Disk-free pre-check
+
+Fill the realm dir parent to under 6 GB free (easiest: run inside a small container or `fallocate -l $(($(df -B1 --output=avail /home/mangos | tail -1) - 5000000000)) /home/mangos/tmpfill`). Then `--flow=resume`:
+
+```bash
+sudo bash install.sh --dev-mode --flow=resume
+```
+
+Expected: phase 8 dies with the disk-free message and the reclaim hints.
+
+### DB migration tracking
+
+After a successful install:
+
+```bash
+sudo mariadb -e "SELECT file_path, installer_version FROM mangos_world0._installer_db_version LIMIT 5"
+```
+
+Expected: rows for applied `database/World/Updates/*.sql` files.
+
+Re-run `update-realm` against the same ref:
+
+```bash
+sudo bash install.sh --dev-mode --flow=update-realm --yes
+```
+
+Expected: `applied N / skipped M` counters where `M > 0` — the previously-applied files are recognised.
+
+### state.json schema-version guard
+
+Fake a future state.json:
+
+```bash
+sudo sed -i 's/"schema_version": 1/"schema_version": 99/' /home/mangos/mangos/.installer/state.json
+sudo bash install.sh --dev-mode
+```
+
+Expected: runner dies with `existing state.json has schema_version=99 but this installer only understands 1`.
+
+### Core-stub rejection
+
+```bash
+sudo bash install.sh --dev-mode --non-interactive \
+  --core=one --realm-name=wtf --db-mode=local \
+  --gamedata-source=manual --yes
+```
+
+Expected: phase 0 dies with `core 'one' is not yet implemented` plus the core description and a pointer to `lib/cores.sh`.

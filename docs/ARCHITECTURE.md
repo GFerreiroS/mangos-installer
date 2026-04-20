@@ -44,7 +44,9 @@ Each phase is an idempotent function `run_phase_NN` that:
 
 Each line: `<phase-name> completed <ISO-8601-UTC>`.
 
-During milestone 1 the mangos user does not yet exist, so state lives in `/var/tmp/mangos-installer-bootstrap/state/global.state`. Phase 1 will migrate it in milestone 2.
+During the first run (before phase 1 finishes) the mangos user does not yet exist, so state temporarily lives in `/var/tmp/mangos-installer-bootstrap/state/global.state`. Phase 1 migrates it into the final location atomically.
+
+**DB migration marker.** Each DB mangos owns has a `_installer_db_version` table (schema: `file_path PRIMARY KEY, applied_at, installer_version`). Phase 7 inserts a row for every `Updates/*.sql` it applies, and `update-realm` consults this table so re-runs skip already-applied files. The table is populated lazily — a DB that existed before this marker was added will still work; only files applied *after* the upgrade are tracked.
 
 ## Configuration split
 
@@ -55,6 +57,8 @@ During milestone 1 the mangos user does not yet exist, so state lives in `/var/t
 | `<realm>/etc/mangosd.conf`, `realmd.conf`    | `mangos`    | 0640 | runtime config consumed by the server       |
 
 `config.env` is flat `KEY="value"` pairs — sourceable as bash but parseable by hand. No YAML, no `yq`/`jq` dependency.
+
+`state.json` carries a `schema_version` integer (currently `1`). The runner refuses to run if it finds an existing `state.json` with a higher `schema_version` than the code emits — that indicates a newer installer touched this host and downgrading would lose information. Lower existing versions are forward-compatible: `state_json_write` overwrites on every phase with the current schema.
 
 ## Directory layout on host
 
@@ -79,6 +83,18 @@ During milestone 1 the mangos user does not yet exist, so state lives in `/var/t
 ```
 
 Multiple realms on one host share a single `mangos-realmd` (auth daemon on port 3724). Each realm gets its own `mangos-mangosd@<realm>` instance via the systemd template unit.
+
+## Flow dispatch
+
+The runner picks a flow per this logic:
+
+1. `--flow=<name>` (or `MANGOS_FLOW=<name>`) — explicit override wins.
+2. Otherwise, if `$MANGOS_ROOT/.installer/config.env` exists → `menu`.
+3. Otherwise → `fresh-install`.
+
+Flows live in `flows/`: `fresh-install`, `menu`, `add-realm`, `update-realm`, `uninstall-realm`, `uninstall-all`, `resume`.
+
+The `update-realm` flow wraps its work in `set -E; trap _update_rollback ERR` — any failure inside the rebuild triggers an automatic source `git reset --hard` + DB restore from the pre-update dump. The backup tarballs are always preserved regardless of rollback outcome so manual recovery remains possible.
 
 ## Design principles
 
