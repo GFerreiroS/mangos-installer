@@ -8,6 +8,31 @@ The project follows the milestone plan in `CLAUDE.md`. Each milestone is a worki
 
 _(no work in flight)_
 
+## 0.4.0-alpha — Milestone 4 (2026-04-20)
+
+Lifecycle management. Re-running `install.sh` against an existing install now shows a menu instead of re-prompting phase 0; the installer can add additional realms, update existing ones at the latest upstream ref (with pre-update backup and automatic rollback on failure), and uninstall individual realms or everything. A full non-interactive CLI surface lets all of the above be scripted.
+
+### Added
+
+- Non-interactive CLI flags in `install.sh` covering realm identity (`--core`, `--realm-name`, `--realm-display-name`, `--realm-address`, `--realm-world-port`), database (`--db-mode`, `--db-host`, `--db-port`, `--db-admin-user`, `--db-admin-password`), gamedata (`--gamedata-source`, `--gamedata-path`, `--gamedata-url`), and confirmation shortcuts (`--yes` / `-y`, `--force-unsupported`). Every flag sets the matching `MANGOS_*` env var that the existing `ui_prompt_*` helpers already read, so interactive and flag-driven modes stay in sync.
+- `--flow=menu` as an explicit dispatch target (in addition to the auto-detected default).
+- `phases/runner.sh` auto-detects existing installs: when `$MANGOS_ROOT/.installer/config.env` exists, it defaults to the `menu` flow and points `MANGOS_CONFIG_FILE`/`MANGOS_STATE_FILE` at the final install-root location instead of the bootstrap staging. Explicit `--flow=` still wins.
+- `flows/menu.sh` — summarises installed realms (name + status) and global components (OpenSSL sidecar version, MariaDB version or remote host:port), then prompts for an action. Non-interactive mode errors out with a pointer to `--flow=`.
+- `flows/add-realm.sh` — validates a fresh realm id (`[a-z][a-z0-9_]{0,31}`, must not already exist), picks the next free world port (`max(existing)+1`, starts at 8086), picks the next free DB index by scanning `REALM_*_DB_WORLD` suffixes, scaffolds the per-realm subtree, and runs phases 6–14 against a fresh `<realm>.state`. Prints a tip up front offering the symlink-extracted-gamedata-from-primary-realm shortcut (saves the 30 min–2 h extract).
+- `flows/update-realm.sh` — GitHub API-resolved new ref with fallback; `mysqldump --single-transaction --routines --triggers --events` for all three DBs into `<realm>/backups/pre-update-<ts>-<db>.sql.gz`; git tag `installer-pre-update-<ts>` on the source checkout; `systemctl stop`; re-run of phases 6/8/9/10 with `MANGOS_FORCE_REF` set so phase 6 uses the chosen ref; naive re-apply of `database/{Character,World}/Updates/*.sql`; `systemctl start`; phase-14 smoke. An `ERR` trap runs an automatic rollback (source `git reset --hard` to the tag, `DROP` + `CREATE` each DB, `gunzip | mysql` the dump, restart the world service). Closing message always names the backup directory and rollback tag so operators can recover manually if the auto rollback also fails.
+- `flows/uninstall-realm.sh` — typed confirmation (operator echoes the realm name); final `mysqldump` into `<realm>/backups/final-<ts>-<db>.sql.gz` (auth DB only dumped when this is the last realm); `systemctl stop` + `disable` per-realm mangosd and, when this is the last realm, also realmd; `DROP` character + world DBs, plus auth only when no other realm still points at it; remove every subdir of `<realm>/` except `backups/`; update config.env with `STATUS=uninstalled` + `UNINSTALLED_AT` without removing the realm's key block (history preserved).
+- `flows/uninstall-all.sh` — double confirmation (literal `YES` uppercase); loops `state_list_realms` calling the per-realm flow in a subshell with `MANGOS_CONFIRM_UNINSTALL=yes`; removes `/etc/systemd/system/mangos-*.service` + `daemon-reload`; removes `/etc/mangos-installer/secrets.env`; separate prompt for `userdel -r mangos` (which deletes the preserved backups); does NOT `apt-remove` dependencies since they may be used by other software.
+- `flows/resume.sh` — thin wrapper that re-dispatches into `fresh-install` after a banner. The per-phase state guards already skip completed work.
+- `lib/db.sh` gains `db_dump_database <db> <out.sql.gz>` (socket-auth in local mode, TCP + `MYSQL_PWD` in remote mode; dumps via a `.part` file and renames) and `db_drop_database <db>` (thin `DROP DATABASE IF EXISTS` wrapper).
+- `phases/phase-06-fetch-sources.sh` honours `MANGOS_FORCE_REF` when set so the update flow can pin a chosen ref without re-hitting the GitHub API.
+
+### Known limitations
+
+- Update-flow re-application of `database/*/Updates/*.sql` is naive: every file is attempted and errors are logged but not fatal. Upstream has historically shipped idempotent update files, but schema-breaking changes will need operator intervention. A proper version marker table (`_installer_db_version`) is slated for milestone 5.
+- The auto rollback inside update-realm restores each DB with `DROP` + `CREATE` + `gunzip | mysql` rather than a proper point-in-time recovery. If the rollback itself fails midway, the DBs can end up partially populated; the backup tarballs are always on disk so operators can redo the restore by hand.
+- `add-realm` still only supports additional "zero" realms because cores one/two/three remain stubs (milestone 5 documents how to add them).
+- `uninstall-all --yes` needs both `MANGOS_CONFIRM_UNINSTALL_ALL=yes` AND `MANGOS_CONFIRM_UNINSTALL=yes` to avoid per-realm prompts; `--yes` sets both.
+
 ## 0.3.0-alpha — Milestone 3 (2026-04-20)
 
 End-to-end fresh install now works. All 14 phases are real: the installer walks from a blank Ubuntu/Debian to `systemctl is-active mangos-mangosd@zero` returning `active`, with ports 3724 (auth) and 8085 (world) open. A machine-readable `state.json` is kept fresh after every phase so external tools can observe progress without tailing logs.

@@ -8,7 +8,7 @@ curl -fsSL https://raw.githubusercontent.com/GFerreiroS/mangos-installer/main/in
 
 The installer handles: OS detection, package installation, OpenSSL 1.1 sidecar build, GCC version pinning, MariaDB setup, source fetching, CMake build, gamedata extraction, config generation, and systemd service setup. It supports multiple realms on one host via systemd template units.
 
-> **Status:** alpha — milestone 1 only. Phase 0 (preflight + interactive configuration) is functional; subsequent phases print `not implemented yet` placeholders. See `CHANGELOG.md` for what each milestone adds.
+> **Status:** alpha — milestone 4. End-to-end install works and the lifecycle flows (add / update / uninstall / resume) are functional. Milestone 5 (polish, error-message refinement, core stubs documentation) is the only remaining work. See `CHANGELOG.md` for what each milestone adds.
 
 ## Supported environments
 
@@ -47,18 +47,21 @@ sudo bash install.sh --dev-mode
 
 `--dev-mode` skips the tarball fetch and uses the local checkout.
 
-### Non-interactive (planned for milestone 4)
+### Non-interactive
+
+Every prompt is driven by a CLI flag (and every flag has a matching `MANGOS_*` env var). Scripted end-to-end install:
 
 ```bash
-sudo MANGOS_NONINTERACTIVE=1 \
-     MANGOS_REALM_CORE=zero \
-     MANGOS_DB_MODE=local \
-     MANGOS_GAMEDATA_SOURCE=path \
-     MANGOS_GAMEDATA_PATH=/srv/wow-1.12.3 \
-     bash install.sh
+sudo bash install.sh --non-interactive \
+  --core=zero \
+  --realm-name=zero --realm-display-name="My Realm" \
+  --realm-address=server.example.com --realm-world-port=8085 \
+  --db-mode=local \
+  --gamedata-source=path --gamedata-path=/srv/wow-1.12.3 \
+  --yes
 ```
 
-The infrastructure is wired in milestone 1; the per-flag CLI lands in milestone 4.
+Management actions (pick one with `--flow=`): `menu` (default when an install exists), `fresh-install`, `add-realm`, `update-realm`, `uninstall-realm`, `uninstall-all`, `resume`. Run `install.sh --help` for the full flag list.
 
 ## What the installer creates
 
