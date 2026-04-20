@@ -4,33 +4,128 @@
 # See CLAUDE.md for design, README.md for usage
 # shellcheck shell=bash
 #
-# Stubs for milestone 1. Full implementation lands in milestone 3 along
-# with the gamedata extraction phases.
+# The WoW 1.12.x client MUST sit at <realm>/gamedata/ with a Data/ subdir
+# containing the MPQ archives. The extractor binaries (map-extractor,
+# vmap-extractor, mmaps_generator) run in the realm gamedata/ dir and
+# walk Data/ to produce dbc/ maps/ vmaps/ mmaps/ outputs next to it.
 
-# gamedata_validate_structure <path> [<core>]
-# Real impl: walk up to 3 levels, find Data/common.MPQ, verify MPQs match
-# the expected set for the core, reject expansion/lichking MPQs for "zero".
+# Sentinel + required MPQ set for each supported core.
+_gamedata_required_mpqs_zero=( "common.MPQ" "common-2.MPQ" "patch.MPQ" "patch-2.MPQ" "patch-3.MPQ" )
+_gamedata_forbidden_mpqs_zero=( "expansion.MPQ" "lichking.MPQ" "expansion1.MPQ" "expansion2.MPQ" "expansion3.MPQ" )
+
+# gamedata_find_data_dir <root> — walk up to 3 levels under <root> and
+# print the first directory that contains Data/common.MPQ. Returns
+# non-zero if nothing found.
+gamedata_find_data_dir() {
+  local root="$1"
+  [[ -d "$root" ]] || return 1
+  local hit
+  hit=$(find "$root" -maxdepth 4 -type f -iname "common.MPQ" -printf '%h\n' 2>/dev/null | head -n 1)
+  [[ -z "$hit" ]] && return 1
+  # Strip trailing /Data (case-insensitive) to return the client root,
+  # not the Data/ dir itself.
+  case "$hit" in
+    */[Dd][Aa][Tt][Aa]) printf '%s\n' "${hit%/*}" ;;
+    *)                  printf '%s\n' "$hit"      ;;
+  esac
+}
+
+# gamedata_validate_structure <path> [<core>] — checks that <path>
+# (possibly nested) contains a Data/ with the required MPQs for the
+# named core, and does NOT contain expansion MPQs when core=zero.
 gamedata_validate_structure() {
   local path="$1" core="${2:-zero}"
-  if [[ -z "$path" ]]; then
-    log_error "gamedata_validate_structure: empty path"
+  [[ -n "$path" ]] || { log_error "gamedata_validate_structure: empty path"; return 1; }
+  [[ -d "$path" ]] || { log_error "gamedata_validate_structure: not a directory: $path"; return 1; }
+
+  local client_root data_dir
+  client_root=$(gamedata_find_data_dir "$path") || {
+    log_error "no Data/common.MPQ found under $path (searched 4 levels deep)"
+    return 1
+  }
+  data_dir="${client_root}/Data"
+  [[ -d "$data_dir" ]] || data_dir=$(find "$client_root" -maxdepth 1 -type d -iname 'Data' | head -n 1)
+  [[ -d "$data_dir" ]] || { log_error "no Data/ directory at $client_root"; return 1; }
+
+  local required forbidden mpq missing="" forbidden_found=""
+  local -n req_ref="_gamedata_required_mpqs_${core}"
+  local -n forb_ref="_gamedata_forbidden_mpqs_${core}"
+
+  for mpq in "${req_ref[@]}"; do
+    if ! find "$data_dir" -maxdepth 1 -type f -iname "$mpq" -print -quit | grep -q .; then
+      missing+=" $mpq"
+    fi
+  done
+  for mpq in "${forb_ref[@]}"; do
+    if find "$data_dir" -maxdepth 1 -type f -iname "$mpq" -print -quit | grep -q .; then
+      forbidden_found+=" $mpq"
+    fi
+  done
+
+  if [[ -n "$missing" ]]; then
+    log_error "gamedata missing required MPQs for core '$core':$missing"
     return 1
   fi
-  log_info "gamedata_validate_structure stub: path=$path core=$core (always succeeds in milestone 1)"
+  if [[ -n "$forbidden_found" ]]; then
+    log_error "gamedata contains MPQs that do not belong to core '$core':$forbidden_found"
+    return 1
+  fi
+
+  # Export so the caller (phase 11) knows where the real Data/ is.
+  export MANGOS_GAMEDATA_CLIENT_ROOT="$client_root"
+  export MANGOS_GAMEDATA_DATA_DIR="$data_dir"
+  log_info "gamedata validated: client_root=$client_root data_dir=$data_dir"
   return 0
 }
 
-# gamedata_find_data_dir <path>
-# Real impl: find the directory containing Data/ (handles nested archives).
-gamedata_find_data_dir() {
-  local path="$1"
-  log_info "gamedata_find_data_dir stub: path=$path (returns input)"
-  printf '%s\n' "$path"
+# gamedata_move_to_realm <source-client-root> <realm>
+# Moves (or symlinks) <source>/Data into <realm_dir>/gamedata/Data.
+# Prefers a rename (mv) when on the same filesystem; falls back to a
+# recursive copy otherwise. Skips cleanly if Data/ already lives in the
+# realm gamedata dir.
+gamedata_move_to_realm() {
+  local source="$1" realm="${2:-$MANGOS_REALM_NAME}"
+  local realm_dir="$MANGOS_ROOT/$realm"
+  local target="$realm_dir/gamedata/Data"
+
+  [[ -n "$source" ]] || { log_error "gamedata_move_to_realm: no source"; return 1; }
+  [[ -d "$source/Data" ]] || {
+    # source may already be a Data/ dir
+    if [[ -f "$source/common.MPQ" ]] || [[ -f "$source/Common.MPQ" ]]; then
+      source="$(dirname -- "$source")"
+    else
+      log_error "gamedata_move_to_realm: $source/Data not found"
+      return 1
+    fi
+  }
+
+  install -d -m 0755 -o "$MANGOS_USER" -g "$MANGOS_USER" -- "$realm_dir/gamedata"
+
+  if [[ -d "$target" ]] && [[ -n "$(ls -A -- "$target" 2>/dev/null)" ]]; then
+    log_info "gamedata Data/ already present at $target — leaving in place"
+    return 0
+  fi
+
+  # If source is under /home/mangos (same fs as target) try rename first.
+  if mv -- "$source/Data" "$target" 2>/dev/null; then
+    log_info "gamedata: renamed $source/Data -> $target"
+  else
+    log_info "gamedata: copying $source/Data -> $target (cross-filesystem)"
+    cp -a -- "$source/Data" "$target" || return 1
+  fi
+  chown -R "$MANGOS_USER:$MANGOS_USER" -- "$target"
+  return 0
 }
 
-# gamedata_move_to_realm <source> <realm>
-# Real impl: mv or symlink from <source>/Data into ~/mangos/<realm>/gamedata/Data.
-gamedata_move_to_realm() {
-  log_warn "gamedata_move_to_realm: not implemented (milestone 3)"
-  return 1
+# gamedata_extract_products_exist <realm_gamedata_dir>
+# Returns 0 if all four extractor outputs (dbc/, maps/, vmaps/, mmaps/)
+# exist and are non-empty. Used for phase-12 idempotence.
+gamedata_extract_products_exist() {
+  local gd="$1"
+  local d
+  for d in dbc maps vmaps mmaps; do
+    [[ -d "$gd/$d" ]] || return 1
+    [[ -n "$(ls -A -- "$gd/$d" 2>/dev/null)" ]] || return 1
+  done
+  return 0
 }
