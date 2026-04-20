@@ -42,3 +42,26 @@ state_reset() {
   mv -- "$tmp" "$sf"
   log_debug "reset: $phase"
 }
+
+# state_switch_to_realm [<name>] — point MANGOS_STATE_FILE at the per-realm
+# state file for <name> (default: $MANGOS_REALM_NAME). Used by the flow to
+# transition from global (phases 0–5) to per-realm (phases 6–14).
+state_switch_to_realm() {
+  local realm="${1:-${MANGOS_REALM_NAME:-}}"
+  [[ -n "$realm" ]] || die "state_switch_to_realm: no realm (set MANGOS_REALM_NAME or pass an arg)"
+  local sdir
+  sdir=$(dirname -- "${MANGOS_STATE_FILE:?MANGOS_STATE_FILE not set}")
+  MANGOS_STATE_FILE="$sdir/${realm}.state"
+  export MANGOS_STATE_FILE
+  mkdir -p -- "$sdir"
+  log_info "state file switched to per-realm: $MANGOS_STATE_FILE"
+}
+
+# state_switch_to_global — return MANGOS_STATE_FILE to the global file.
+state_switch_to_global() {
+  local sdir
+  sdir=$(dirname -- "${MANGOS_STATE_FILE:?MANGOS_STATE_FILE not set}")
+  MANGOS_STATE_FILE="$sdir/global.state"
+  export MANGOS_STATE_FILE
+  log_info "state file switched to global: $MANGOS_STATE_FILE"
+}

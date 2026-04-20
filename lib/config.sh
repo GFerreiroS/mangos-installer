@@ -58,3 +58,25 @@ _kv_get() {
 
 config_set() { _kv_set "${MANGOS_CONFIG_FILE:?MANGOS_CONFIG_FILE not set}" "$1" "$2"; }
 config_get() { _kv_get "${MANGOS_CONFIG_FILE:?MANGOS_CONFIG_FILE not set}" "$1"; }
+
+# config_hydrate_realm <name> — copy REALM_<name>_<suffix> values into
+# MANGOS_REALM_<suffix> globals. Lets phases address realm vars by a stable
+# name regardless of which realm is currently active.
+config_hydrate_realm() {
+  local r="$1"
+  [[ -n "$r" ]] || return 1
+  local key suffix
+  for suffix in CORE NAME ADDRESS WORLD_PORT DB_AUTH DB_CHAR DB_WORLD MANGOS_REF INSTALLED_AT LAST_UPDATED STATUS; do
+    key="REALM_${r}_${suffix}"
+    if [[ -n "${!key:-}" ]]; then
+      # REALM_<r>_NAME holds the display name in this project; expose it
+      # through MANGOS_REALM_DISPLAY to avoid clashing with the basename var.
+      case "$suffix" in
+        NAME) export MANGOS_REALM_DISPLAY="${!key}" ;;
+        *)    export "MANGOS_REALM_${suffix}=${!key}" ;;
+      esac
+    fi
+  done
+  export MANGOS_REALM_NAME="$r"
+  log_debug "hydrated realm vars for '$r'"
+}

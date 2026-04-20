@@ -217,6 +217,9 @@ _preflight_persist_answers() {
   config_set DB_PORT        "$MANGOS_DB_PORT"
   config_set DB_ADMIN_USER  "$MANGOS_DB_ADMIN_USER"
 
+  # Pointer so re-runs / phases past 0 know which realm is "current".
+  config_set MANGOS_CURRENT_REALM "$MANGOS_REALM_NAME"
+
   config_set GAMEDATA_SOURCE "$MANGOS_GAMEDATA_SOURCE"
   [[ -n "${MANGOS_GAMEDATA_PATH:-}" ]]               && config_set GAMEDATA_PATH              "$MANGOS_GAMEDATA_PATH"
   [[ -n "${MANGOS_GAMEDATA_URL:-}" ]]                && config_set GAMEDATA_URL               "$MANGOS_GAMEDATA_URL"

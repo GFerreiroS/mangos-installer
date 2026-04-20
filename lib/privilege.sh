@@ -21,3 +21,24 @@ run_as_mangos() {
     bash -c "$*"
   fi
 }
+
+# run_script_as_mangos <script-path> [args...]
+# Executes a pre-written script as the mangos user. Avoids the shell-quoting
+# hazards of run_as_mangos "<long command>" for multi-line build steps.
+run_script_as_mangos() {
+  local script="$1"
+  shift
+  local user="${MANGOS_USER:-${MANGOS_DEFAULT_USER:-mangos}}"
+  [[ -r "$script" ]] || die "run_script_as_mangos: script not readable: $script"
+  if id -u "$user" >/dev/null 2>&1; then
+    sudo -u "$user" -H bash -- "$script" "$@"
+  else
+    die "run_script_as_mangos: user '$user' does not exist (phase 1 must run first)"
+  fi
+}
+
+# mangos_user_exists — lightweight check used by phase idempotence guards.
+mangos_user_exists() {
+  local user="${MANGOS_USER:-${MANGOS_DEFAULT_USER:-mangos}}"
+  id -u "$user" >/dev/null 2>&1
+}

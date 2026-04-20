@@ -62,6 +62,13 @@ export MANGOS_CONFIG_FILE MANGOS_SECRETS_FILE MANGOS_STATE_FILE
 # Reload prior config so re-runs can read previous answers.
 config_load
 
+# Re-hydrate MANGOS_REALM_* from REALM_<name>_* if a realm is already on file.
+# Lets phases past 0 address realm values by stable names even when phase 0
+# short-circuits on re-run.
+if [[ -n "${MANGOS_CURRENT_REALM:-}" ]]; then
+  config_hydrate_realm "$MANGOS_CURRENT_REALM"
+fi
+
 # Bootstrap couldn't clean its tmpdir (it exec'd this process); take over.
 if [[ -n "${MANGOS_TMPDIR_TO_CLEANUP:-}" ]]; then
   trap 'rm -rf -- "$MANGOS_TMPDIR_TO_CLEANUP"' EXIT
