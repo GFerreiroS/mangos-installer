@@ -15,13 +15,19 @@ ui_print_banner "mangos installer ${INSTALLER_VERSION} — fresh install"
 . "$MANGOS_INSTALLER_DIR/phases/phase-00-preflight.sh"
 run_phase_00
 
-# Phases 1–14 — stubs in milestone 1
-PHASES=(
+# Global phases (1-5) write to the global state file.
+GLOBAL_PHASES=(
   "phase-01-user-and-dirs"
   "phase-02-apt-deps"
   "phase-03-openssl-sidecar"
   "phase-04-gcc-available"
   "phase-05-mariadb"
+)
+
+# Per-realm phases (6-14) write to <realm>.state. Multi-realm support
+# (milestone 4) will loop over realms; milestone 2/3 uses the one realm
+# preflight collected.
+REALM_PHASES=(
   "phase-06-fetch-sources"
   "phase-07-db-schemas"
   "phase-08-build"
@@ -33,18 +39,28 @@ PHASES=(
   "phase-14-smoke"
 )
 
-for p in "${PHASES[@]}"; do
-  # shellcheck disable=SC1090
-  . "$MANGOS_INSTALLER_DIR/phases/${p}.sh"
-  num="${p#phase-}"
-  num="${num%%-*}"
-  fn="run_phase_${num}"
-  "$fn"
-done
+_run_phases() {
+  local p num fn
+  for p in "$@"; do
+    # shellcheck disable=SC1090
+    . "$MANGOS_INSTALLER_DIR/phases/${p}.sh"
+    num="${p#phase-}"
+    num="${num%%-*}"
+    fn="run_phase_${num}"
+    "$fn"
+  done
+}
 
-ui_print_banner "milestone 1 complete: phase 0 + 14 stubs walked"
+_run_phases "${GLOBAL_PHASES[@]}"
+
+state_switch_to_realm "$MANGOS_REALM_NAME"
+log_info "switched to per-realm state for '$MANGOS_REALM_NAME': $MANGOS_STATE_FILE"
+
+_run_phases "${REALM_PHASES[@]}"
+
+ui_print_banner "fresh install walked phase 0 + 1-14"
 ui_status_info "config:  $MANGOS_CONFIG_FILE"
 ui_status_info "secrets: $MANGOS_SECRETS_FILE"
 ui_status_info "state:   $MANGOS_STATE_FILE"
 ui_status_info "log:     $MANGOS_LOG_FILE"
-ui_status_info "next milestones will replace phases 1–14 with real implementations."
+ui_status_info "phases 11-14 are still stubs — milestone 3 lands gamedata + systemd + smoke"
