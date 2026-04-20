@@ -29,7 +29,7 @@ state_has_completed() {
 state_list_completed() {
   local sf="${MANGOS_STATE_FILE:-}"
   [[ -n "$sf" ]] && [[ -f "$sf" ]] || return 0
-  awk '{print $1}' -- "$sf"
+  awk '{print $1}' "$sf"
 }
 
 state_reset() {
@@ -108,7 +108,7 @@ state_json_write() {
   local global_state="$sdir/global.state"
 
   local completed_globals
-  completed_globals=$(awk '{print $1}' -- "$global_state" 2>/dev/null \
+  completed_globals=$(awk '{print $1}' "$global_state" 2>/dev/null \
                        | sort -u | tr '\n' ',' | sed 's/,$//')
 
   {
@@ -180,7 +180,7 @@ _state_json_realm_block() {
   local realm_state_file
   realm_state_file=$(_state_realm_file "$r")
   local completed
-  completed=$(awk '{print $1}' -- "$realm_state_file" 2>/dev/null | sort -u | tr '\n' ',' | sed 's/,$//')
+  completed=$(awk '{print $1}' "$realm_state_file" 2>/dev/null | sort -u | tr '\n' ',' | sed 's/,$//')
 
   printf '    {\n'
   printf '      "name": "%s",\n'            "$(_state_json_escape "$r")"

@@ -1,16 +1,152 @@
 #!/usr/bin/env bash
-# mangos-installer — phase 11: gamedata source resolution (path / URL wait / manual)
+# mangos-installer — phase 11: resolve gamedata source (path/url/manual), validate, move
 # SPDX-License-Identifier: GPL-2.0-only
 # See CLAUDE.md for design, README.md for usage
-# Stub for milestone 1; full implementation lands in milestone 3.
+# shellcheck disable=SC2154
+#
+# Branches on GAMEDATA_SOURCE (persisted by phase 0):
+#   - path: user-provided local directory — validate then move into
+#     <realm>/gamedata/Data/
+#   - url: wait for the background curl PID started by phase 0; extract
+#     the archive; validate; move
+#   - manual: print instructions with the expected target path and exit
+#     0 (subsequent phases will be skipped this run). The operator
+#     re-runs the installer after placing the files; phase 11 then
+#     re-validates and continues.
 
 run_phase_11() {
   MANGOS_CURRENT_PHASE="phase-11-gamedata-prep"
-  if state_has_completed "$MANGOS_CURRENT_PHASE"; then
-    ui_phase_header 11 14 "gamedata prep (already done — skipping)"
+  ui_phase_header 11 14 "gamedata prep"
+
+  : "${MANGOS_REALM_NAME:?MANGOS_REALM_NAME not set}"
+  local realm_dir="$MANGOS_ROOT/$MANGOS_REALM_NAME"
+  local gd="$realm_dir/gamedata"
+  local target="$gd/Data"
+
+  # Idempotence: if Data/ already populated and passes validation, done.
+  if state_has_completed "$MANGOS_CURRENT_PHASE" \
+     && [[ -d "$target" ]] && [[ -f "$target/common.MPQ" || -f "$target/Common.MPQ" ]]; then
+    ui_status_ok "already done — skipping"
     return 0
   fi
-  ui_phase_header 11 14 "gamedata prep"
-  ui_status_info "stub: validate path / wait on background download / instruct manual placement — milestone 3"
+
+  mangos_user_exists || die "mangos user missing (phase 1 must run first)"
+
+  local source_mode core
+  source_mode=$(config_get GAMEDATA_SOURCE)
+  core="${MANGOS_REALM_CORE:-$(config_get "REALM_${MANGOS_REALM_NAME}_CORE")}"
+  [[ -n "$source_mode" ]] || die "GAMEDATA_SOURCE not set in config (phase 0 must run first)"
+
+  case "$source_mode" in
+    path)   _phase_11_from_path   "$gd" "$core" ;;
+    url)    _phase_11_from_url    "$gd" "$core" ;;
+    manual) _phase_11_manual_stop "$gd" ;;
+    *)      die "unknown GAMEDATA_SOURCE: $source_mode" ;;
+  esac
+
   state_mark_complete "$MANGOS_CURRENT_PHASE"
+}
+
+# --- path --------------------------------------------------------------------
+
+_phase_11_from_path() {
+  local gd="$1" core="$2"
+  local user_path
+  user_path=$(config_get GAMEDATA_PATH)
+  [[ -n "$user_path" ]] || die "GAMEDATA_PATH not set (phase 0 must run first)"
+  [[ -d "$user_path" ]] || die "gamedata path not a directory: $user_path"
+
+  ui_status_info "validating client at $user_path..."
+  if ! gamedata_validate_structure "$user_path" "$core"; then
+    die "gamedata validation failed; see log for details"
+  fi
+  ui_status_ok "found Data/ at $MANGOS_GAMEDATA_DATA_DIR"
+
+  if [[ -d "$gd/Data" ]] && [[ -n "$(ls -A -- "$gd/Data" 2>/dev/null)" ]]; then
+    ui_status_ok "$gd/Data is already populated; leaving in place"
+    return 0
+  fi
+
+  ui_status_info "moving Data/ into $gd/Data/ ..."
+  gamedata_move_to_realm "$MANGOS_GAMEDATA_CLIENT_ROOT" "$MANGOS_REALM_NAME" \
+    || die "failed to move gamedata into $gd/Data"
+  ui_status_ok "gamedata in place"
+}
+
+# --- url ---------------------------------------------------------------------
+
+_phase_11_from_url() {
+  local gd="$1" core="$2"
+  local dest pidfile
+  dest=$(config_get GAMEDATA_DOWNLOAD_DEST)
+  pidfile=$(config_get GAMEDATA_DOWNLOAD_PIDFILE)
+  [[ -n "$dest"    ]] || die "GAMEDATA_DOWNLOAD_DEST not set (phase 0 must run first)"
+  [[ -n "$pidfile" ]] || die "GAMEDATA_DOWNLOAD_PIDFILE not set (phase 0 must run first)"
+
+  ui_status_info "waiting for background download to finish..."
+  local rc
+  rc=$(download_wait "$pidfile")
+  if [[ "${rc:-1}" != "0" ]]; then
+    die "background download failed (exit=$rc); see $MANGOS_LOG_FILE"
+  fi
+  ui_status_ok "download complete: $dest"
+
+  # Extract into a staging dir under gamedata/, then relocate Data/.
+  local staging="$gd/.extract"
+  rm -rf -- "$staging"
+  install -d -m 0755 -o "$MANGOS_USER" -g "$MANGOS_USER" -- "$staging"
+
+  ui_status_info "extracting archive..."
+  archive_extract "$dest" "$staging" || die "archive extraction failed"
+  chown -R "$MANGOS_USER:$MANGOS_USER" -- "$staging"
+
+  ui_status_info "validating extracted client..."
+  if ! gamedata_validate_structure "$staging" "$core"; then
+    die "extracted gamedata failed validation; see log for details"
+  fi
+
+  ui_status_info "moving Data/ into $gd/Data/ ..."
+  gamedata_move_to_realm "$MANGOS_GAMEDATA_CLIENT_ROOT" "$MANGOS_REALM_NAME" \
+    || die "failed to move gamedata into $gd/Data"
+
+  # Cleanup: we moved Data/ out of staging, the remainder is the raw archive
+  # plus whatever wrapper directories the upload had.
+  rm -rf -- "$staging"
+  # Keep the downloaded archive in case of re-run (re-extraction is cheap).
+  ui_status_ok "gamedata in place"
+}
+
+# --- manual ------------------------------------------------------------------
+#
+# First run: create empty Data/ and stop with instructions (do NOT mark
+# complete, so re-run returns here).
+# Re-run: if the operator has placed MPQs, validate — if the structure
+# passes, log it and let run_phase_11 mark the phase complete.
+
+_phase_11_manual_stop() {
+  local gd="$1"
+  local core="${MANGOS_REALM_CORE:-zero}"
+  install -d -m 0755 -o "$MANGOS_USER" -g "$MANGOS_USER" -- "$gd/Data"
+
+  # Already populated? Validate and continue.
+  if [[ -f "$gd/Data/common.MPQ" ]] || [[ -f "$gd/Data/Common.MPQ" ]]; then
+    ui_status_info "validating client files at $gd/Data/..."
+    if gamedata_validate_structure "$gd" "$core"; then
+      ui_status_ok "gamedata in place"
+      return 0
+    fi
+    die "gamedata validation failed at $gd/Data (see log)"
+  fi
+
+  ui_status_warn "manual gamedata mode selected."
+  ui_status_info "place your WoW 1.12.x client MPQs at:"
+  ui_status_info "  $gd/Data/"
+  ui_status_info "the directory must contain: common.MPQ, common-2.MPQ, patch.MPQ,"
+  ui_status_info "patch-2.MPQ, patch-3.MPQ, and <locale>/locale-<locale>.MPQ"
+  ui_status_info "(expansion.MPQ / lichking.MPQ must NOT be present for core 'zero')"
+  ui_status_info ""
+  ui_status_info "once placed, re-run the installer to continue:"
+  ui_status_info "  sudo bash install.sh --dev-mode   # or the curl | sudo bash form"
+  log_info "phase 11 manual stop — installer paused; phase will not be marked complete"
+  exit 0
 }

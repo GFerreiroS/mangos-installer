@@ -5,8 +5,9 @@
 # shellcheck shell=bash disable=SC2154
 #
 # Sourced by phases/runner.sh; expects all libraries already loaded.
-# Walks phase 0 (preflight, fully implemented) followed by phases 1–14.
-# In milestone 1 phases 1–14 are stubs that print "not implemented".
+# Walks phase 0 (preflight), phases 1-5 (global), then phases 6-14
+# (per-realm). state_json_write runs after every phase so external
+# consumers always see a fresh snapshot.
 
 ui_print_banner "mangos installer ${INSTALLER_VERSION} — fresh install"
 
@@ -14,6 +15,7 @@ ui_print_banner "mangos installer ${INSTALLER_VERSION} — fresh install"
 # shellcheck source=../phases/phase-00-preflight.sh
 . "$MANGOS_INSTALLER_DIR/phases/phase-00-preflight.sh"
 run_phase_00
+state_json_write || true
 
 # Global phases (1-5) write to the global state file.
 GLOBAL_PHASES=(
@@ -25,8 +27,8 @@ GLOBAL_PHASES=(
 )
 
 # Per-realm phases (6-14) write to <realm>.state. Multi-realm support
-# (milestone 4) will loop over realms; milestone 2/3 uses the one realm
-# preflight collected.
+# (milestone 4) will loop over realms; milestones 2/3 use the single
+# realm collected by preflight.
 REALM_PHASES=(
   "phase-06-fetch-sources"
   "phase-07-db-schemas"
@@ -48,6 +50,9 @@ _run_phases() {
     num="${num%%-*}"
     fn="run_phase_${num}"
     "$fn"
+    # Keep state.json fresh so external observers (CLAUDE.md § 5.7) can
+    # poll after each phase without racing a write.
+    state_json_write || true
   done
 }
 
@@ -58,9 +63,4 @@ log_info "switched to per-realm state for '$MANGOS_REALM_NAME': $MANGOS_STATE_FI
 
 _run_phases "${REALM_PHASES[@]}"
 
-ui_print_banner "fresh install walked phase 0 + 1-14"
-ui_status_info "config:  $MANGOS_CONFIG_FILE"
-ui_status_info "secrets: $MANGOS_SECRETS_FILE"
-ui_status_info "state:   $MANGOS_STATE_FILE"
-ui_status_info "log:     $MANGOS_LOG_FILE"
-ui_status_info "phases 11-14 are still stubs — milestone 3 lands gamedata + systemd + smoke"
+# Phase 14 prints its own success banner; nothing else to say here.
