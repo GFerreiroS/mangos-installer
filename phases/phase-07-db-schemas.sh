@@ -41,6 +41,13 @@ run_phase_07() {
   local db_world="${MANGOS_REALM_DB_WORLD:-mangos_world0}"
 
   _phase_07_create_dbs "$db_auth" "$db_char" "$db_world"
+
+  # Migration-tracking table in each DB so later update-realm runs can
+  # skip already-applied Updates/*.sql files.
+  db_ensure_migration_table "$db_auth"  || true
+  db_ensure_migration_table "$db_char"  || true
+  db_ensure_migration_table "$db_world" || true
+
   _phase_07_populate "$db_auth"  "$db_repo/Realm"     realmlist
   _phase_07_populate "$db_char"  "$db_repo/Character" characters
   _phase_07_populate_world "$db_world" "$db_repo/World"
@@ -93,12 +100,19 @@ _phase_07_populate_world() {
   _phase_07_apply_dir "$db" "$tree/Updates"  "update"
 }
 
-# Apply all .sql files in <dir>, sorted lexically, to <db>.
+# Apply all .sql files in <dir>, sorted lexically, to <db>. Update-kind
+# applications consult/record the migration-tracking table so the same
+# file is never re-applied.
 _phase_07_apply_dir() {
   local db="$1" dir="$2" kind="$3"
   [[ -d "$dir" ]] || return 0
-  local applied=0 f
+  local applied=0 skipped=0 f key
   while IFS= read -r -d '' f; do
+    key="${f#"$MANGOS_ROOT/"}"  # relative path is stable across re-runs
+    if [[ "$kind" == "update" ]] && db_migration_has "$db" "$key"; then
+      skipped=$(( skipped + 1 ))
+      continue
+    fi
     ui_status_info "${kind}: $(basename -- "$f") -> $db"
     if ! db_import_admin "$db" "$f" >>"$MANGOS_LOG_FILE" 2>&1; then
       if [[ "$kind" == "update" ]]; then
@@ -107,9 +121,12 @@ _phase_07_apply_dir() {
         die "schema apply failed: $f -> $db"
       fi
     fi
+    [[ "$kind" == "update" ]] && db_migration_record "$db" "$key"
     applied=$(( applied + 1 ))
   done < <(find "$dir" -maxdepth 2 -type f -name '*.sql' -print0 2>/dev/null | sort -z)
-  [[ $applied -gt 0 ]] && ui_status_ok "applied $applied ${kind} file(s) to $db"
+  if (( applied > 0 )) || (( skipped > 0 )); then
+    ui_status_ok "applied $applied / skipped $skipped ${kind} file(s) to $db"
+  fi
   return 0
 }
 

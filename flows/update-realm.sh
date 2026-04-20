@@ -159,18 +159,22 @@ _update_apply_db_updates() {
   local char_db world_db
   char_db=$(config_get "REALM_${UPDATE_REALM}_DB_CHAR")
   world_db=$(config_get "REALM_${UPDATE_REALM}_DB_WORLD")
-  ui_status_info "re-applying database/Updates/*.sql (errors logged, not fatal)..."
   _phase_05_load_admin_password
-  local f applied=0
-  shopt -s nullglob
-  for f in "$db_repo/Character/Updates"/*.sql "$db_repo/Character/Updates"/*/*.sql; do
-    [[ -f "$f" ]] && { db_import_admin "$char_db" "$f" >>"$MANGOS_LOG_FILE" 2>&1 || true; applied=$(( applied + 1 )); }
-  done
-  for f in "$db_repo/World/Updates"/*.sql "$db_repo/World/Updates"/*/*.sql; do
-    [[ -f "$f" ]] && { db_import_admin "$world_db" "$f" >>"$MANGOS_LOG_FILE" 2>&1 || true; applied=$(( applied + 1 )); }
-  done
-  shopt -u nullglob
-  ui_status_ok "attempted to apply $applied update file(s); see log for per-file errors"
+
+  # Use phase-7's apply helper so the migration-tracking table in each
+  # DB ensures previously-applied update files are skipped.
+  db_ensure_migration_table "$char_db"  || true
+  db_ensure_migration_table "$world_db" || true
+
+  # phase-07's _phase_07_apply_dir lives inside phase-07's file; source
+  # it so we can call the private helper directly.
+  # shellcheck source=../phases/phase-07-db-schemas.sh
+  . "$MANGOS_INSTALLER_DIR/phases/phase-07-db-schemas.sh"
+
+  ui_status_info "applying any new database/Updates/*.sql (already-applied files are skipped)..."
+  _phase_07_apply_dir "$char_db"  "$db_repo/Character/Updates" "update"
+  _phase_07_apply_dir "$world_db" "$db_repo/World/Updates"     "update"
+
   ui_status_warn "schema-breaking upstream changes are NOT auto-migrated;"
   ui_status_warn "review upstream release notes for ${UPDATE_OLD_REF:-?} -> ${UPDATE_NEW_REF}."
 }

@@ -123,6 +123,50 @@ db_drop_database() {
   db_exec_admin "DROP DATABASE IF EXISTS \`$1\`" >/dev/null 2>&1
 }
 
+# Migration-tracking table (one per DB). Tracks which update-SQL files
+# have been applied by this installer, keyed by relative path.
+readonly DB_MIGRATION_TABLE="_installer_db_version"
+
+# db_ensure_migration_table <database>
+# Creates the tracking table if missing. Idempotent.
+db_ensure_migration_table() {
+  local db="$1"
+  db_exec_admin "
+    CREATE TABLE IF NOT EXISTS \`${db}\`.\`${DB_MIGRATION_TABLE}\` (
+      file_path   VARCHAR(512) NOT NULL PRIMARY KEY,
+      applied_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      installer_version VARCHAR(64) NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  " >>"${MANGOS_LOG_FILE:-/dev/null}" 2>&1 || {
+    log_warn "could not create migration-tracking table in $db (continuing)"
+    return 1
+  }
+}
+
+# db_migration_has <database> <relative-file-path>
+db_migration_has() {
+  local db="$1" key="$2"
+  local count
+  # Escape single quotes in the key for the SQL literal.
+  local key_sql="${key//\'/\'\'}"
+  count=$(db_exec_admin \
+    "SELECT COUNT(*) FROM \`${db}\`.\`${DB_MIGRATION_TABLE}\` WHERE file_path='${key_sql}'" \
+    2>/dev/null | awk 'NR==2 { print $1 }')
+  [[ "${count:-0}" -gt 0 ]]
+}
+
+# db_migration_record <database> <relative-file-path>
+db_migration_record() {
+  local db="$1" key="$2"
+  local key_sql="${key//\'/\'\'}"
+  local ver_sql="${INSTALLER_VERSION:-unknown}"
+  ver_sql="${ver_sql//\'/\'\'}"
+  db_exec_admin "
+    INSERT IGNORE INTO \`${db}\`.\`${DB_MIGRATION_TABLE}\`
+      (file_path, installer_version) VALUES ('${key_sql}', '${ver_sql}')
+  " >>"${MANGOS_LOG_FILE:-/dev/null}" 2>&1 || true
+}
+
 # db_wait_ready [<timeout-seconds>] — poll until the server accepts a
 # trivial query or the timeout elapses.
 db_wait_ready() {

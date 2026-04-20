@@ -74,6 +74,25 @@ export MANGOS_CONFIG_FILE MANGOS_SECRETS_FILE MANGOS_STATE_FILE
 # Reload prior config so re-runs can read previous answers.
 config_load
 
+# state.json schema compatibility. Current in-code schema is 1. If a
+# previous install wrote a higher schema_version, a newer installer was
+# used and we must not clobber its state blindly.
+_runner_check_state_schema() {
+  local sj="$MANGOS_DEFAULT_INSTALL_ROOT/.installer/state.json"
+  [[ -f "$sj" ]] || return 0
+  local existing
+  existing=$(sed -nE 's/.*"schema_version": *([0-9]+).*/\1/p' "$sj" | head -n 1)
+  [[ -z "$existing" ]] && return 0
+  if (( existing > 1 )); then
+    die "existing state.json has schema_version=$existing but this installer only understands 1
+    a newer installer was used against this host. upgrade this installer or run it on a fresh host.
+    state.json path: $sj"
+  fi
+  # Lower schema_versions are forward-compatible; state_json_write rewrites
+  # the file with the current schema on every phase.
+}
+_runner_check_state_schema
+
 # Re-hydrate MANGOS_REALM_* from REALM_<name>_* if a realm is already on file.
 # Lets phases past 0 address realm values by stable names even when phase 0
 # short-circuits on re-run.
