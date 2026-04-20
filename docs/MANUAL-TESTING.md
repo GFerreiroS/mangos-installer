@@ -97,8 +97,97 @@ phase-02-apt-deps completed 2026-04-19T...
 - All 14 stub phases mark themselves complete. After pulling milestone 2, wipe `/var/tmp/mangos-installer-bootstrap/state/` before re-running, otherwise the new real implementations will be skipped.
 - The background download in URL mode is orphaned to `init` once the installer exits, since phase 11 (which would consume it) is a stub in M1. Kill any leftover `curl` PID manually if you tested this path.
 
-## Milestone 2 — _planned_
-See `CLAUDE.md` § 7 Milestone 2.
+## Milestone 2 — core install path
+
+### What works after M2
+Phases 1–10 are real: the installer creates the mangos user, installs apt deps, builds the OpenSSL 1.1 sidecar, installs gcc-11, sets up MariaDB, clones the upstream repos, applies DB schemas, builds mangosd/realmd, installs the binaries, and writes runtime configs. Services do NOT start yet — that is milestone 3 (phases 11–14).
+
+### Prerequisites
+- Ubuntu 22.04 / 24.04 or Debian 12 container / VM with internet access.
+- At least 4GB RAM and 20GB free disk for the build. 8GB RAM is preferable — the build uses full `nproc` above that threshold.
+- If you tested M1 in the same container, wipe the bootstrap staging before running M2 so the stub completion markers don't skip the real work. Phase 1 self-heals if the mangos user is missing, but clearing state is cleaner:
+  ```bash
+  sudo rm -rf /var/tmp/mangos-installer-bootstrap
+  ```
+
+### Run (local gamedata mode — the fast path for M2 acceptance)
+
+```bash
+cd /path/to/mangos-installer
+sudo bash install.sh --dev-mode
+```
+
+Answer the prompts (core `zero`, your realm name, `local` DB mode, gamedata source `manual` — gamedata doesn't matter for M2, phases 11–14 are still stubs).
+
+Expect the run to take 20–60 minutes on x86_64, 45–120 minutes on aarch64:
+- Phase 1 (user + dirs): < 1s.
+- Phase 2 (apt): 30–90s depending on apt mirror and what's already cached.
+- Phase 3 (OpenSSL): 5–15 min.
+- Phase 4 (gcc): 10–60s (often a no-op if gcc-11 is already installed).
+- Phase 5 (MariaDB): 5–20s.
+- Phase 6 (fetch sources): 30s–2 min.
+- Phase 7 (DB schemas): 10s–2 min (world data dump is the slow part).
+- Phase 8 (build): 15–40 min (the longest phase).
+- Phase 9 (install binaries): < 5s.
+- Phase 10 (configs): < 1s.
+
+### Verify binaries exist and report a version
+
+```bash
+sudo -u mangos /home/mangos/mangos/zero/bin/mangosd --version
+sudo -u mangos /home/mangos/mangos/zero/bin/realmd --version
+```
+
+Both should print a MaNGOS build string. If they segfault with a library error, the OpenSSL sidecar rpath is wrong — capture `ldd /home/mangos/mangos/zero/bin/mangosd | grep -E 'ssl|crypto'` and check it resolves to `/home/mangos/mangos/opt/openssl-1.1/lib/lib*.so.1.1`.
+
+### Verify the DBs are populated
+
+```bash
+sudo mariadb -e "SHOW DATABASES LIKE 'mangos%'"
+sudo mariadb mangos_auth  -e "SELECT id,name,address,port FROM realmlist"
+sudo mariadb mangos_world0 -e "SELECT COUNT(*) FROM creature_template"
+sudo mariadb mangos_character0 -e "SHOW TABLES LIKE 'characters'"
+```
+
+Realmlist should have id=1 with the display name / address / port you chose. `creature_template` count should be in the tens of thousands (populated by Full_DB).
+
+### Verify config strings are injected
+
+```bash
+sudo grep -E '^(LoginDatabaseInfo|WorldDatabaseInfo|CharacterDatabaseInfo|DataDir|LogsDir|WorldServerPort|Warden.Enabled)' \
+  /home/mangos/mangos/zero/etc/mangosd.conf
+
+sudo grep -E '^(LoginDatabaseInfo|RealmServerPort|LogsDir)' \
+  /home/mangos/mangos/zero/etc/realmd.conf
+
+ls -l /home/mangos/mangos/zero/etc/
+```
+
+All four connection strings should read `host;port;user;<pw>;dbname`. Perms should be `-rw-r----- mangos mangos`.
+
+### Idempotence check
+
+Re-run the installer without wiping state. Every phase should print `(already done — skipping)`. No network fetches, no compilation.
+
+```bash
+sudo bash install.sh --dev-mode
+```
+
+### Remote DB path (optional)
+
+```bash
+sudo bash install.sh --dev-mode
+# answer MANGOS_DB_MODE=remote, give host/port/admin-user/admin-password
+```
+
+Phase 5 will `SELECT VERSION()`, version-check against the support matrix, and `SHOW GRANTS FOR CURRENT_USER`. Missing `CREATE/DROP/SELECT/…` aborts the phase.
+
+### Troubleshooting
+- **OpenSSL SHA256 mismatch** — only plausible if openssl.org served a mirror with a corrupt tarball; re-run will re-download.
+- **`build did not produce mangosd`** — compilation failure; look near the end of `/home/mangos/mangos/.installer/logs/install-*.log` for the real error, usually a specific source file.
+- **`realmlist UPDATE failed`** — the upstream schema's initial row is missing or numbered differently; insert id=1 manually.
+
+## Milestone 3 — _planned_
 
 ## Milestone 3 — _planned_
 See `CLAUDE.md` § 7 Milestone 3.

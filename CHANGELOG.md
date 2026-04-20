@@ -8,6 +8,40 @@ The project follows the milestone plan in `CLAUDE.md`. Each milestone is a worki
 
 _(no work in flight)_
 
+## 0.2.0-alpha — Milestone 2 (2026-04-20)
+
+Phases 1–10 are now real implementations: the installer creates the mangos user, installs apt dependencies, builds the OpenSSL 1.1 sidecar, ensures gcc-11 is available, sets up MariaDB, clones the upstream repos at the latest release tag, applies DB schemas, builds mangosd/realmd, installs the binaries, and writes runtime configs. Phases 11–14 (gamedata prep/extract, systemd, smoke test) remain stubs and land in milestone 3.
+
+After milestone 2, `~/mangos/zero/bin/mangosd --version` and `realmd --version` work, the three databases are populated, and `~/mangos/zero/etc/{mangosd,realmd}.conf` contain valid connection strings. The daemons do not yet start under systemd — that is milestone 3.
+
+### Added
+
+- `lib/db.sh` — real MariaDB/MySQL client wrapper (`db_exec_root`, `db_exec_admin`, `db_import_admin`, `db_version`, `db_exists`, `db_table_exists`, `db_wait_ready`). Passwords travel via `MYSQL_PWD` rather than argv.
+- `lib/platform.sh` gains `platform_build_parallelism` — picks `-j` based on RAM (≥8GB full `nproc`, 4–8GB half, else 2).
+- `lib/privilege.sh` gains `run_script_as_mangos` and `mangos_user_exists`.
+- `lib/config.sh` gains `config_hydrate_realm <name>` — copies `REALM_<name>_<suffix>` values into stable `MANGOS_REALM_<suffix>` globals so per-realm phases can address realm data without knowing the basename.
+- `lib/state.sh` gains `state_switch_to_realm` / `state_switch_to_global`.
+- `phases/runner.sh` re-hydrates `MANGOS_REALM_*` from `MANGOS_CURRENT_REALM` after `config_load` so phases past 0 have realm vars set on resume.
+- `phase-01-user-and-dirs` — `useradd -m mangos`, scaffolds the `$MANGOS_ROOT/{opt,.installer/{logs,state,build-cache},<realm>/{source,database,build,bin,etc,gamedata,logs,backups}}` tree, migrates the boot log / `config.env` / state file out of `/var/tmp/mangos-installer-bootstrap` into `.installer/`, and writes a fresh `global.state` that preserves only the `phase-00` marker (drops M1-stub markers for 2–14). Self-heals if the state says "done" but the install root doesn't exist.
+- `phase-02-apt-deps` — single non-interactive `apt-get install` with baked-in community fixes (`libreadline-dev`, `liblua5.2-dev`, `default-libmysqlclient-dev`). `mariadb-server` is added only in `DB_MODE=local`; `unrar`/`p7zip-full` are deferred to `archive.sh`'s on-demand install in phase 11.
+- `phase-03-openssl-sidecar` — downloads `openssl-1.1.1w.tar.gz`, verifies SHA256, extracts, and builds with `LDFLAGS=-Wl,-rpath,$OPENSSL_PREFIX/lib` so resulting libs carry the sidecar in rpath. System OpenSSL 3 is left untouched.
+- `phase-04-gcc-available` — `apt install gcc-11 g++-11` if absent; records `MANGOS_CC`/`MANGOS_CXX` in `config.env`. System default gcc stays intact (no `update-alternatives`).
+- `phase-05-mariadb` — local (`systemctl enable --now mariadb`, drop test DB + anonymous users, `CREATE USER` / `GRANT ALL ON *.* … WITH GRANT OPTION` via `unix_socket`) and remote (version-check `MariaDB 10.3+` / `MySQL 5.7+`/`8.x`, `SHOW GRANTS` verification).
+- `phase-06-fetch-sources` — GitHub API ref resolution via `sed` (no `jq`), fallback to `MANGOS_FALLBACK_REF`. `git clone --recursive` or fetch+checkout as the mangos user.
+- `phase-07-db-schemas` — creates the three databases, applies `Setup/` → `Full_DB/` (world) → `Updates/` SQL files from the upstream database repo, then `UPDATE realmlist` id=1. Marker-table checks skip already-populated DBs.
+- `phase-08-build` — CMake with explicit compiler + OpenSSL paths + per-core flags from `core_cmake_flags`; `cmake --build` with auto-tuned `-j`; `cmake --install` into `<build>/install/`.
+- `phase-09-install-binaries` — copies `mangosd`/`realmd` into `<realm>/bin` and `*-extractor`/`*.sh`/`offmesh.txt` into `<realm>/gamedata`.
+- `phase-10-configs` — copies every `*.conf.dist` from `install/etc/` to `<realm>/etc/` without the `.dist`, then `sed`-injects `LoginDatabaseInfo` / `WorldDatabaseInfo` / `CharacterDatabaseInfo` / `DataDir` / `LogsDir` / `WorldServerPort` into `mangosd.conf` and `LoginDatabaseInfo` / `RealmServerPort` / `LogsDir` into `realmd.conf`. `Warden.Enabled=0`. Files end up `0640 mangos:mangos`.
+- `flows/fresh-install.sh` runs phases 1–5 against `global.state`, then `state_switch_to_realm` before phases 6–14.
+
+### Known limitations
+
+- Phase 7's update-SQL files are applied once on first run; later re-runs of phase 7 (after a state wipe) may fail on already-applied updates. A marker table (`_installer_db_version`) is planned for milestone 4's update flow.
+- The realmlist `UPDATE` assumes a row with `id=1` exists after the Realm setup SQL. If the upstream schema changes its initial seeding, operators will need to `INSERT` id=1 manually (the phase warns).
+- Phase 10 overwrites any manual edits to runtime `.conf` files whenever it re-runs. Treat `config.env` as the source of truth.
+- DB passwords travel in `mangosd.conf` / `realmd.conf` as part of the semicolon-delimited connection string, so the password must not contain `;`. Phase 0's generated passwords are alphanumeric; remote-mode operators must avoid `;` themselves.
+- The sidecar OpenSSL tarball is fetched straight from `openssl.org`; this is a single point of failure for the build. A mirror fallback is a candidate for milestone 5.
+
 ## 0.1.0-alpha — Milestone 1 (2026-04-19)
 
 First scaffold. Bootstrap fetches the installer, runs phase 0 interactively, then walks through stub messages for phases 1–14.

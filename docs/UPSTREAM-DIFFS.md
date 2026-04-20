@@ -6,7 +6,7 @@ Each divergence has a **what** (the change), a **why** (the incident or constrai
 
 ## Locked-in divergences
 
-_None of these are implemented yet; they land in milestones 2 and 3. The decisions are fixed as of milestone 1 and are documented here so contributors do not silently revert them._
+_The OpenSSL sidecar, gcc-11 CMake pin, and direct-mysql DB bootstrap are implemented as of milestone 2. The systemd switch lands in milestone 3. Each decision is fixed; contributors should not silently revert._
 
 ### OpenSSL 1.1 as a sidecar, not a system replacement
 
@@ -64,9 +64,7 @@ These will be decided when the relevant milestone lands and will get their own s
 
 The following items from forum threads on the upstream community guide are applied automatically by this installer; credits are preserved in the top of the relevant phase or lib where the fix lives:
 
-- `libreadline-dev` added to the dependency list (Cr10).
-- `liblua52.so` symlink handled at build time (silentlabber).
-- GCC 11 pin when the system default is 12+ (rogical).
-- OpenSSL 1.1 as a sidecar (z932074's coexistence pattern).
-
-The current installer does not yet implement any of these — they are listed here so the implementations in milestones 2 and 3 have a checklist to honor.
+- `libreadline-dev` added to the dependency list (Cr10) — implemented in phase 2.
+- `liblua5.2-dev` in the dependency list so the Lua-scripting linkage resolves (silentlabber) — implemented in phase 2.
+- GCC 11 pinned at CMake time rather than via `update-alternatives` (rogical) — implemented in phase 4 (installed) and phase 8 (pinned at configure time).
+- OpenSSL 1.1 as a sidecar rather than replacing the system binary (z932074's coexistence pattern) — implemented in phase 3.
