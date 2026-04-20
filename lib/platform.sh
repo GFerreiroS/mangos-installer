@@ -51,6 +51,18 @@ platform_ram_gb() {
   awk '/^MemTotal:/ { printf "%d\n", $2/1024/1024 }' /proc/meminfo
 }
 
+# platform_build_parallelism — reasonable -j value for cmake / make builds.
+# >=8GB RAM: full nproc; 4-8GB: half nproc (min 1); <4GB: 2.
+platform_build_parallelism() {
+  local ram_gb nproc_
+  ram_gb=$(platform_ram_gb)
+  nproc_=$(nproc 2>/dev/null || echo 2)
+  if   (( ram_gb >= 8 )); then printf '%s\n' "$nproc_"
+  elif (( ram_gb >= 4 )); then printf '%s\n' "$(( nproc_ / 2 > 0 ? nproc_ / 2 : 1 ))"
+  else                         printf '%s\n' "2"
+  fi
+}
+
 # platform_disk_gb <path> — free GB at the closest existing ancestor of <path>.
 platform_disk_gb() {
   local path="$1" p="$1"
