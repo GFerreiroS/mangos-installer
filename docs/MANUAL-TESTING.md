@@ -187,8 +187,6 @@ Phase 5 will `SELECT VERSION()`, version-check against the support matrix, and `
 - **`build did not produce mangosd`** — compilation failure; look near the end of `/home/mangos/mangos/.installer/logs/install-*.log` for the real error, usually a specific source file.
 - **`realmlist UPDATE failed`** — the upstream schema's initial row is missing or numbered differently; insert id=1 manually.
 
-## Milestone 3 — _planned_
-
 ## Milestone 3 — end-to-end install
 
 After M3 the installer walks from blank OS to `systemctl is-active mangos-mangosd@zero` → `active`. This is the full acceptance path and requires a real WoW 1.12.x client.
@@ -269,10 +267,132 @@ Common failure modes:
 
 Re-run the installer after a successful M3 install. Every phase should print `(already done — skipping)`; phase 14's guard additionally verifies services are still active and re-prints the success banner.
 
-## Milestone 4 — _planned_
+## Milestone 4 — lifecycle management
 
-## Milestone 4 — _planned_
-See `CLAUDE.md` § 7 Milestone 4.
+All tests below assume an Incus container with M3 already passing (realm "zero" installed, services running). If you are starting from a clean host, run M3 first or use `--non-interactive` with the flags below.
+
+### Non-interactive fresh install (scriptable end-to-end)
+
+```bash
+sudo bash install.sh --dev-mode --non-interactive \
+  --core=zero \
+  --realm-name=zero --realm-display-name="Test" \
+  --realm-address=127.0.0.1 --realm-world-port=8085 \
+  --db-mode=local \
+  --gamedata-source=path --gamedata-path=/srv/wow-client \
+  --yes
+```
+
+Expected: no prompts, straight through phases 0–14, same success banner as an interactive run.
+
+### Re-run shows menu
+
+With a completed install:
+
+```bash
+sudo bash install.sh --dev-mode
+```
+
+Expect the banner `mangos installer … — management` followed by a realm inventory and a 1–6 choice prompt. Pick `6) exit` to confirm clean exit.
+
+### Add a second realm
+
+```bash
+sudo bash install.sh --dev-mode --flow=add-realm
+```
+
+Answer: core `zero`, realm name `alt`, accept defaults for display / address, accept the suggested port 8086. Phase 6 clones upstream into `/home/mangos/mangos/alt/source`; phase 8 rebuilds; phase 12 re-extracts (⚠ 30 min–2 h). To skip extraction, stop at phase 12's first heartbeat and:
+
+```bash
+sudo -u mangos bash -c 'cd /home/mangos/mangos/alt/gamedata && \
+  ln -s ../../zero/gamedata/Data Data && \
+  ln -s ../../zero/gamedata/dbc dbc && \
+  ln -s ../../zero/gamedata/maps maps && \
+  ln -s ../../zero/gamedata/vmaps vmaps && \
+  ln -s ../../zero/gamedata/mmaps mmaps'
+sudo bash install.sh --dev-mode --flow=resume
+```
+
+The resume flow skips completed phases; the products check in `gamedata_extract_products_exist` sees the symlinked outputs and phase 12 completes instantly.
+
+Acceptance: after `add-realm` finishes, `systemctl status mangos-mangosd@alt` is active, `ss -lnt sport = :8086` shows LISTEN, and `cat /home/mangos/mangos/.installer/state.json` shows both realms.
+
+### Update a realm
+
+```bash
+sudo bash install.sh --dev-mode --flow=update-realm
+```
+
+If the installed ref matches `MANGOS_FALLBACK_REF` / latest, the flow will say "already on latest" and ask if you want to force a rebuild. Accept. Pre-update backups land in `/home/mangos/mangos/zero/backups/pre-update-<ts>-*.sql.gz`; the git tag `installer-pre-update-<ts>` is written to the source checkout; phases 6/8/9/10 re-run; DB Updates are re-applied; smoke test re-runs.
+
+Test the rollback path by deliberately breaking the build:
+
+```bash
+sudo -u mangos sh -c 'echo "#error intentional break" >> /home/mangos/mangos/zero/source/src/mangosd/Main.cpp'
+sudo bash install.sh --dev-mode --flow=update-realm
+```
+
+Expected: phase 8 fails; the ERR trap prints `update FAILED — rolling back` and restores source + DBs; world service restarts.
+
+### Uninstall a realm
+
+```bash
+sudo bash install.sh --dev-mode --flow=uninstall-realm
+```
+
+Pick `alt` (the second realm) and type `alt` to confirm. The flow takes a final backup, stops the unit, drops the character + world DBs, and removes everything under `/home/mangos/mangos/alt/` except `backups/`. The auth DB stays (still used by the primary realm).
+
+Verify:
+
+```bash
+sudo mariadb -e "SHOW DATABASES LIKE 'mangos%'"  # mangos_character0, mangos_world0, mangos_auth only
+ls /home/mangos/mangos/alt/                       # only backups/
+ls /home/mangos/mangos/alt/backups/               # final-<ts>-*.sql.gz present
+systemctl status mangos-mangosd@alt               # inactive (dead), disabled
+```
+
+### Uninstall everything
+
+```bash
+sudo bash install.sh --dev-mode --flow=uninstall-all
+```
+
+Type `YES` (uppercase) to confirm. The flow loops each remaining realm, removes systemd units, removes secrets, and prompts separately about deleting the mangos user. Decline the user removal first to verify backups are preserved under `/home/mangos/mangos/<realm>/backups/`. Re-run and accept the user removal to verify the full teardown.
+
+### Resume after kill
+
+Start a fresh install:
+
+```bash
+sudo bash install.sh --dev-mode --non-interactive \
+  --core=zero --realm-name=zero --realm-display-name="Test" \
+  --realm-address=127.0.0.1 --db-mode=local \
+  --gamedata-source=path --gamedata-path=/srv/wow-client \
+  --yes &
+INSTALL_PID=$!
+
+# Kill it during phase 8 (build):
+sleep 300 && kill -KILL $INSTALL_PID
+
+# Resume:
+sudo bash install.sh --dev-mode --flow=resume
+```
+
+Expected: phases 0–7 show `(already done — skipping)`; phase 8 restarts cleanly (CMake incremental build picks up where it left off).
+
+### Fully non-interactive add-realm + update
+
+```bash
+sudo bash install.sh --dev-mode --non-interactive --flow=add-realm \
+  --core=zero --realm-name=pvp --realm-display-name="PvP" \
+  --realm-address=127.0.0.1 --realm-world-port=8087
+
+sudo bash install.sh --dev-mode --non-interactive --flow=update-realm \
+  --yes
+  # (update takes the single installed realm if MANGOS_UPDATE_REALM unset)
+```
+
+Each command should succeed without any prompts.
 
 ## Milestone 5 — _planned_
 See `CLAUDE.md` § 7 Milestone 5.
