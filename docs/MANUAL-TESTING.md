@@ -189,8 +189,87 @@ Phase 5 will `SELECT VERSION()`, version-check against the support matrix, and `
 
 ## Milestone 3 — _planned_
 
-## Milestone 3 — _planned_
-See `CLAUDE.md` § 7 Milestone 3.
+## Milestone 3 — end-to-end install
+
+After M3 the installer walks from blank OS to `systemctl is-active mangos-mangosd@zero` → `active`. This is the full acceptance path and requires a real WoW 1.12.x client.
+
+### Prerequisites
+- Ubuntu 22.04 / 24.04 or Debian 12 environment with **real systemd** (Incus / LXC container or a VM, not vanilla Docker). `phase-13-systemd` fails loudly under Docker-without-systemd.
+- 4 GB+ RAM, 30 GB+ free disk (extracted `maps/`, `vmaps/`, `mmaps/` are ~8 GB combined).
+- A WoW 1.12.x client directory with the MPQ set (see `CLAUDE.md` § 5 for the expected files).
+- If you tested M1 or M2 in the same environment, wipe stale state first:
+  ```bash
+  sudo systemctl stop mangos-mangosd@zero mangos-realmd 2>/dev/null
+  sudo rm -rf /home/mangos/mangos /var/tmp/mangos-installer-bootstrap
+  sudo userdel -r mangos 2>/dev/null
+  ```
+
+### Incus quick path
+
+```bash
+incus launch images:ubuntu/24.04 mangos-m3
+incus file push -r /path/to/mangos-installer/. mangos-m3/root/mangos-installer/
+incus file push -r /path/to/wow-client-1.12.3/. mangos-m3/srv/wow-client/
+incus exec mangos-m3 -- bash -c 'apt-get update && apt-get install -y curl ca-certificates sudo'
+incus exec mangos-m3 -- bash -c 'cd /root/mangos-installer && bash install.sh --dev-mode'
+```
+
+At the gamedata prompt, pick `path` and enter `/srv/wow-client` (or wherever you pushed the client).
+
+### Expected runtime
+
+| Phase | x86_64 (modern) | aarch64 |
+|---|---|---|
+| 0–10 (M2 path) | 25–60 min | 50–120 min |
+| 11 (gamedata prep — path mode) | < 5 s | < 5 s |
+| 11 (url mode, depends on link speed) | n × MB/s | n × MB/s |
+| 12 (gamedata extract) | 30–60 min | 60–180 min |
+| 13 (systemd) | < 2 s | < 2 s |
+| 14 (smoke) | 5–120 s | 5–120 s |
+
+Phase 12 is where most of the new-time lives; the heartbeat prints every 60 seconds so the phase looks alive.
+
+### Acceptance checks
+
+```bash
+incus exec mangos-m3 -- bash -c '
+  set -e
+  systemctl is-active mangos-realmd                 # active
+  systemctl is-active mangos-mangosd@zero           # active
+  ss -lnt sport = :3724 | tail -n +2                # LISTEN
+  ss -lnt sport = :8085 | tail -n +2                # LISTEN
+  ls /home/mangos/mangos/zero/gamedata/             # dbc/ maps/ mmaps/ vmaps/ Data/
+  jq .realms[0].status /home/mangos/mangos/.installer/state.json  # "installed"
+'
+```
+
+All six checks should succeed. `jq` is not a hard dependency but handy for the last check; `cat` works too.
+
+### Connect a real client
+
+Set your WoW 1.12.x client's `realmlist.wtf` to `set realmlist <incus-container-ip>`, then launch. The default `ADMINISTRATOR / ADMINISTRATOR` account lets you log in; change the password immediately inside the game with `.account set password <old> <new> <new>`.
+
+### Failure diagnostics
+
+If phase 14 fails, the installer dumps the last 50 lines of `journalctl` for the failing unit and dies. For more:
+
+```bash
+incus exec mangos-m3 -- journalctl -u mangos-realmd --no-pager
+incus exec mangos-m3 -- journalctl -u mangos-mangosd@zero --no-pager
+incus exec mangos-m3 -- tail -200 /home/mangos/mangos/.installer/logs/install-*.log
+```
+
+Common failure modes:
+- **realmd exits with libssl error** — phase 3 or 8 miswired the OpenSSL rpath. `ldd /home/mangos/mangos/zero/bin/realmd | grep ssl` should resolve to `/home/mangos/mangos/opt/openssl-1.1/lib/libssl.so.1.1`.
+- **mangosd hangs on port 8085** — the world server is still loading the database and gamedata into memory; the 120-second timeout may be too tight on slow aarch64 boards. Increase `TimeoutStartSec` in the template or accept that the first boot is slow and restart.
+- **`gamedata missing required MPQs`** — the client you pointed at is TBC / WotLK / corrupt. The installer refuses TBC+ MPQs when `core=zero`.
+- **`mmaps_generator` runs forever** — normal. The mmap phase single-threads per tile; a 16-core machine speeds up by having more tiles in flight but each tile is still a long arithmetic grind. Leave it alone.
+
+### Milestone 3 idempotence
+
+Re-run the installer after a successful M3 install. Every phase should print `(already done — skipping)`; phase 14's guard additionally verifies services are still active and re-prints the success banner.
+
+## Milestone 4 — _planned_
 
 ## Milestone 4 — _planned_
 See `CLAUDE.md` § 7 Milestone 4.

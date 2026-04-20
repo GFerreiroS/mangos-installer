@@ -6,7 +6,7 @@ Each divergence has a **what** (the change), a **why** (the incident or constrai
 
 ## Locked-in divergences
 
-_The OpenSSL sidecar, gcc-11 CMake pin, and direct-mysql DB bootstrap are implemented as of milestone 2. The systemd switch lands in milestone 3. Each decision is fixed; contributors should not silently revert._
+_All of the following are implemented as of milestone 3: the OpenSSL sidecar, the gcc-11 CMake pin, the direct-mysql DB bootstrap, the systemd units, and the direct-binary gamedata extractor invocation. Each decision is fixed; contributors should not silently revert._
 
 ### OpenSSL 1.1 as a sidecar, not a system replacement
 
@@ -30,6 +30,11 @@ _The OpenSSL sidecar, gcc-11 CMake pin, and direct-mysql DB bootstrap are implem
 - **What.** Re-implement the database bootstrap: create the three databases (`mangos_auth`, `mangos_character<N>`, `mangos_world<N>`), apply the schema SQL and world data dump from the `mangoszero/database` repo in the right order, run any dated updates, and update the realmlist row via plain `mysql -e`.
 - **Why.** `InstallDatabase.sh` is an interactive menu-driven shell script. Driving it with `expect` is fragile (any wording change breaks the match); re-implementing the handful of steps directly is shorter, faster, and easier to test. A side benefit is that remote-DB mode becomes clean to support.
 - **Follow-up.** Propose upstream break `InstallDatabase.sh` into a non-interactive `apply-database.sh` that accepts the same arguments. Then this installer can delegate to that script and the two paths converge.
+
+### Direct extractor binaries, not `ExtractResources.sh` via `expect`
+
+- **What.** `phase-12-gamedata-extract` invokes `map-extractor`, `vmap-extractor` (+ `vmap_assembler` when present), and `mmaps_generator` directly as subprocesses running in the realm's `gamedata/` directory. The upstream `ExtractResources.sh` wrapper is never invoked.
+- **Why.** The wrapper is an interactive menu driver; automating it would need `expect` as a new dependency plus a dialogue match that breaks every time upstream tweaks a prompt. The binaries it wraps each accept non-interactive invocation when run with the correct CWD, so skipping the wrapper is shorter, has no new dependencies, and stays robust across upstream releases. Heartbeat logging (a one-line status every 60 s) keeps the long-running `mmaps_generator` visible.
 
 ### systemd unit + template instance, not `screen` / `wowadmin.sh`
 
@@ -56,7 +61,6 @@ _The OpenSSL sidecar, gcc-11 CMake pin, and direct-mysql DB bootstrap are implem
 
 These will be decided when the relevant milestone lands and will get their own sections here:
 
-- **Gamedata extractor interaction** — milestone 3 will choose between driving `ExtractResources.sh` with `expect` or invoking the underlying extractor binaries directly with flags. The decision depends on how complex the wrapper's logic turns out to be when read end-to-end.
 - **DB update tracking** — milestone 4's update flow needs a way to know which dated patches under `database/Updates/` have already been applied. If the upstream repo has a marker convention we will use it; otherwise we will add our own marker table.
 - **Port allocation for multi-realm** — milestone 4 will either auto-pick the next free world port starting at 8085 or refuse to start if 8085 is taken.
 

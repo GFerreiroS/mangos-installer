@@ -8,6 +8,31 @@ The project follows the milestone plan in `CLAUDE.md`. Each milestone is a worki
 
 _(no work in flight)_
 
+## 0.3.0-alpha — Milestone 3 (2026-04-20)
+
+End-to-end fresh install now works. All 14 phases are real: the installer walks from a blank Ubuntu/Debian to `systemctl is-active mangos-mangosd@zero` returning `active`, with ports 3724 (auth) and 8085 (world) open. A machine-readable `state.json` is kept fresh after every phase so external tools can observe progress without tailing logs.
+
+### Added
+
+- `lib/gamedata.sh` replaces the milestone-1 stubs. `gamedata_find_data_dir` walks up to 4 levels under the user-provided path looking for `Data/common.MPQ`; `gamedata_validate_structure` checks the required MPQ set for the selected core (`zero` = common, common-2, patch, patch-2, patch-3) and rejects `expansion.MPQ` / `lichking.MPQ` when core is `zero`; `gamedata_move_to_realm` renames (or copies on cross-fs) `Data/` into `<realm>/gamedata/Data`; `gamedata_extract_products_exist` checks for populated `dbc/`, `maps/`, `vmaps/`, `mmaps/` output dirs (used by phase 12's idempotence guard).
+- `lib/systemd.sh` replaces the milestone-1 stub. `systemd_install_units` copies `templates/mangos-*.service` into `/etc/systemd/system/` only when they differ (cmp-based) and runs `daemon-reload` only when something actually changed. `systemd_have` distinguishes "systemctl binary present" from "system manager is alive" so Docker-without-systemd fails fast and loudly. `systemd_wait_port <port> <timeout>` polls `ss` (or `netstat` as a fallback) for a listening socket.
+- `lib/state.sh` gains `state_list_realms` (derives realm names from `REALM_<name>_CORE=` keys), `state_json_write` (atomic, printf-based, no `jq` dependency — matches the schema in CLAUDE.md § 5.7), and the private helpers `_state_json_escape` and `_state_realm_file`. `awk ... -- <file>` is replaced with `awk '...' <file>` throughout (awk does not accept `--` as an end-of-options marker; the old invocation silently emitted empty `completed_phases` arrays).
+- `phase-11-gamedata-prep` — branches on the `GAMEDATA_SOURCE` persisted by phase 0. `path`: validates the user's directory and moves `Data/` into the realm. `url`: blocks on `download_wait` for the background curl kicked off by phase 0, runs `archive_extract` on the download, validates, and moves. `manual`: writes an empty `Data/` dir plus instructions and exits 0 without marking the phase complete — subsequent runs return to phase 11 and validate the placed files before proceeding.
+- `phase-12-gamedata-extract` — invokes `map-extractor`, `vmap-extractor` (+ `vmap_assembler` if the build produced one), and `mmaps_generator` directly in the realm's `gamedata/` directory as the mangos user. Each runs backgrounded with a 60-second heartbeat so operators can see the phase is alive during the 30 min–2 h runtime. Chooses the first matching binary from a set of casing variants (`map-extractor` / `MapExtractor`, etc.) because upstream has renamed them across releases. After extraction, removes the extractor binaries and helper scripts — they are not needed at runtime and clutter the realm's gamedata dir.
+- `phase-13-systemd` — `systemd_install_units` + `systemctl enable mangos-realmd` + `systemctl enable mangos-mangosd@<realm>`. Does not start services; start is phase 14.
+- `phase-14-smoke` — starts `mangos-realmd`, waits up to 15 s for port 3724 to open, then starts `mangos-mangosd@<realm>` and waits up to 120 s for the world port. On any failure pulls the last 50 lines of `journalctl -u <unit>` into the log and dies with a clear pointer to the journal. Updates `REALM_<name>_STATUS=installed` and `LAST_UPDATED` on success. Prints the final success banner with the realm name, display name, external address + ports, the systemctl / journalctl commands for operation, the `state.json` path, the installer log path, and a loud warning to change the default `ADMINISTRATOR/ADMINISTRATOR` accounts before exposing the server.
+- `flows/fresh-install.sh` — calls `state_json_write` after every phase. Phase 14's banner replaces the previous closing message.
+
+### Decisions recorded
+
+- **Phase 12 invokes extractor binaries directly** rather than drive `ExtractResources.sh` with `expect`. The individual extractors (`map-extractor`, `vmap-extractor`, `mmaps_generator`) accept non-interactive invocation; wrapping the shell script would add an `expect` dependency and a brittle dialogue match for no gain. Documented in `docs/UPSTREAM-DIFFS.md`.
+
+### Known limitations
+
+- `state_json_write` regenerates `state.json` from config + state files on every call; there is no writer coordination across multiple concurrent installer runs. If you run two installers against the same install root at the same time, the last writer wins. The installer was never designed for that case.
+- Phase 14's port-open check only confirms the daemons are binding. It does not exercise the auth or world protocols; a runtime crash immediately after port-open would still trip the second `systemd_is_active` check but a subtle protocol problem would slip through. A real client handshake test is a candidate for milestone 5.
+- If the operator quits during `phase-12-gamedata-extract`, partial `dbc/maps/vmaps/mmaps` directories may remain. The idempotence guard checks only for presence and non-emptiness, so a kill-during-extraction followed by a re-run skips the phase. Delete the partial output dirs before re-running if this happens.
+
 ## 0.2.0-alpha — Milestone 2 (2026-04-20)
 
 Phases 1–10 are now real implementations: the installer creates the mangos user, installs apt dependencies, builds the OpenSSL 1.1 sidecar, ensures gcc-11 is available, sets up MariaDB, clones the upstream repos at the latest release tag, applies DB schemas, builds mangosd/realmd, installs the binaries, and writes runtime configs. Phases 11–14 (gamedata prep/extract, systemd, smoke test) remain stubs and land in milestone 3.
