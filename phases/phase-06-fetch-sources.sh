@@ -42,9 +42,14 @@ run_phase_06() {
   ui_status_ok "source + database trees ready"
 }
 
-# Resolve the MaNGOS ref: latest release tag via GitHub API, or fallback.
-# Parses JSON with sed (no jq dependency — see CLAUDE.md § 7 M2 and § 9).
+# Resolve the MaNGOS ref: MANGOS_FORCE_REF (set by update-realm), else
+# latest release tag via GitHub API, else fallback. JSON parsed with sed
+# (no jq dependency — see CLAUDE.md § 7 M2 and § 9).
 _phase_06_resolve_ref() {
+  if [[ -n "${MANGOS_FORCE_REF:-}" ]]; then
+    printf '%s\n' "$MANGOS_FORCE_REF"
+    return 0
+  fi
   local api_json ref=""
   if api_json=$(curl -fsSL --max-time 15 "$MANGOS_ZERO_RELEASES_API" 2>>"$MANGOS_LOG_FILE"); then
     ref=$(printf '%s\n' "$api_json" \
