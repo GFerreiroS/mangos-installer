@@ -36,30 +36,95 @@ boot_die()   { boot_error "$*"; printf '\nbootstrap log: %s\n' "$BOOT_LOG_FILE" 
 # --- Argument parsing ---
 DEV_MODE=0
 NON_INTERACTIVE_FLAG="${MANGOS_NONINTERACTIVE:-0}"
-INSTALLER_FLOW="${MANGOS_FLOW:-fresh-install}"
+INSTALLER_FLOW="${MANGOS_FLOW:-}"   # empty = let the runner auto-detect
+
+# Map a --key=value (or --key value) CLI flag to a MANGOS_* env var. Keeps
+# the interactive prompts (which already read MANGOS_*) and the flag-driven
+# mode from drifting apart.
+_set_env() {
+  local name="$1" val="$2"
+  printf -v "$name" '%s' "$val"
+  export "$name"
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dev-mode)         DEV_MODE=1; shift ;;
     --non-interactive)  NON_INTERACTIVE_FLAG=1; shift ;;
     --flow=*)           INSTALLER_FLOW="${1#*=}"; shift ;;
-    --version|-V)       printf 'mangos-installer %s\n' "$INSTALLER_VERSION"; exit 0 ;;
+
+    # --- realm identity ----------------------------------------------------
+    --core=*)               _set_env MANGOS_REALM_CORE       "${1#*=}"; shift ;;
+    --realm-name=*)         _set_env MANGOS_REALM_NAME       "${1#*=}"; shift ;;
+    --realm-display-name=*) _set_env MANGOS_REALM_DISPLAY    "${1#*=}"; shift ;;
+    --realm-address=*)      _set_env MANGOS_REALM_ADDRESS    "${1#*=}"; shift ;;
+    --realm-world-port=*)   _set_env MANGOS_REALM_WORLD_PORT "${1#*=}"; shift ;;
+
+    # --- database ---------------------------------------------------------
+    --db-mode=*)            _set_env MANGOS_DB_MODE           "${1#*=}"; shift ;;
+    --db-host=*)            _set_env MANGOS_DB_HOST           "${1#*=}"; shift ;;
+    --db-port=*)            _set_env MANGOS_DB_PORT           "${1#*=}"; shift ;;
+    --db-admin-user=*)      _set_env MANGOS_DB_ADMIN_USER     "${1#*=}"; shift ;;
+    --db-admin-password=*)  _set_env MANGOS_DB_ADMIN_PASSWORD "${1#*=}"; shift ;;
+
+    # --- gamedata ---------------------------------------------------------
+    --gamedata-source=*)    _set_env MANGOS_GAMEDATA_SOURCE "${1#*=}"; shift ;;
+    --gamedata-path=*)      _set_env MANGOS_GAMEDATA_PATH   "${1#*=}"; shift ;;
+    --gamedata-url=*)       _set_env MANGOS_GAMEDATA_URL    "${1#*=}"; shift ;;
+
+    # --- confirmation shortcuts ------------------------------------------
+    --yes|-y)
+      _set_env MANGOS_ALLOW_INSECURE_URL   "yes"
+      _set_env MANGOS_CONFIRM_UNINSTALL    "yes"
+      _set_env MANGOS_CONFIRM_UNINSTALL_ALL "yes"
+      shift ;;
+    --force-unsupported) _set_env MANGOS_FORCE_UNSUPPORTED yes; shift ;;
+
+    --version|-V) printf 'mangos-installer %s\n' "$INSTALLER_VERSION"; exit 0 ;;
     --help|-h)
       cat <<EOF
 mangos-installer ${INSTALLER_VERSION}
 
 Usage:
   curl -fsSL ${INSTALLER_REPO_URL}/raw/main/install.sh | sudo bash
-  sudo bash install.sh [--dev-mode] [--non-interactive] [--flow=<name>]
+  sudo bash install.sh [options]
 
-Options:
-  --dev-mode         Use the local checkout instead of fetching from GitHub
-  --non-interactive  Read all answers from MANGOS_* env vars (see CLAUDE.md)
-  --flow=<name>      fresh-install (default) | add-realm | update-realm |
-                     uninstall-realm | uninstall-all | resume
-  --version, -V      Print version and exit
-  --help, -h         This message
+Invocation options:
+  --dev-mode           Use the local checkout instead of fetching from GitHub
+  --non-interactive    Require every answer to come from CLI flags or env vars
+  --flow=<name>        fresh-install | menu | add-realm | update-realm |
+                       uninstall-realm | uninstall-all | resume
+                       (default: auto-detect — menu if an install already
+                       exists, fresh-install otherwise)
 
+Realm identity (fresh install / add realm):
+  --core=zero                     MaNGOS core (zero|one|two|three)
+  --realm-name=<id>               internal lowercase id, e.g. "zero"
+  --realm-display-name=<str>      display name shown in the client
+  --realm-address=<host-or-ip>    address the client connects to
+  --realm-world-port=<n>          world server port (default 8085)
+
+Database:
+  --db-mode=local|remote
+  --db-host=<host>                remote mode: DB host
+  --db-port=<n>                   remote mode: DB port
+  --db-admin-user=<user>          DB admin user
+  --db-admin-password=<pw>        DB admin password (avoid on shared hosts; env var preferred)
+
+Gamedata:
+  --gamedata-source=path|url|manual
+  --gamedata-path=<abs-path>      client path (source=path)
+  --gamedata-url=<url>            client archive URL (source=url)
+
+Confirmation:
+  --yes, -y            Pre-accept prompts (insecure URL, uninstall, etc.)
+  --force-unsupported  Run on an OS that the installer normally rejects
+
+Misc:
+  --version, -V        Print version and exit
+  --help, -h           This message
+
+All flags have equivalent MANGOS_* environment variables — see CLAUDE.md.
 Documentation: ${INSTALLER_REPO_URL}
 EOF
       exit 0 ;;

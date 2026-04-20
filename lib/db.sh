@@ -86,6 +86,43 @@ db_table_exists() {
   [[ "${count:-0}" -gt 0 ]]
 }
 
+# db_dump_database <database> <output-file.sql.gz>
+# Dumps <database> via mysqldump and compresses with gzip. Works in both
+# local (socket-auth) and remote (TCP + MYSQL_PWD) modes. Used by the
+# update-realm and uninstall flows for pre-op backups.
+db_dump_database() {
+  local db="$1" out="$2"
+  local dumper=""
+  if command -v mariadb-dump >/dev/null 2>&1; then
+    dumper="mariadb-dump"
+  elif command -v mysqldump >/dev/null 2>&1; then
+    dumper="mysqldump"
+  else
+    log_error "no mysqldump/mariadb-dump client installed"
+    return 1
+  fi
+  mkdir -p -- "$(dirname -- "$out")"
+  local tmp="${out}.part"
+  if [[ "${MANGOS_DB_MODE:-local}" == "local" ]]; then
+    sudo "$dumper" --protocol=socket \
+      --single-transaction --routines --triggers --events \
+      "$db" | gzip > "$tmp"
+  else
+    MYSQL_PWD="${MANGOS_DB_ADMIN_PASSWORD:-}" "$dumper" \
+      -h "${MANGOS_DB_HOST:-localhost}" \
+      -P "${MANGOS_DB_PORT:-3306}" \
+      -u "${MANGOS_DB_ADMIN_USER:-mangos}" \
+      --single-transaction --routines --triggers --events \
+      "$db" | gzip > "$tmp"
+  fi
+  mv -- "$tmp" "$out"
+}
+
+# db_drop_database <database> — DROP DATABASE IF EXISTS.
+db_drop_database() {
+  db_exec_admin "DROP DATABASE IF EXISTS \`$1\`" >/dev/null 2>&1
+}
+
 # db_wait_ready [<timeout-seconds>] — poll until the server accepts a
 # trivial query or the timeout elapses.
 db_wait_ready() {

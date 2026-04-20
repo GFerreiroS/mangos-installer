@@ -53,9 +53,21 @@ export MANGOS_LOG_FILE
 mkdir -p -- "$MANGOS_BOOTSTRAP_STAGING"
 chmod 0700 -- "$MANGOS_BOOTSTRAP_STAGING" 2>/dev/null || true
 
-MANGOS_CONFIG_FILE="${MANGOS_CONFIG_FILE:-$MANGOS_BOOTSTRAP_STAGING/config.env}"
+# If a previous install's config.env exists at the final install root,
+# prefer that (re-run detection). Otherwise use the bootstrap staging
+# location; phase 1 migrates it into the final location on first install.
+MANGOS_FINAL_CONFIG="$MANGOS_DEFAULT_INSTALL_ROOT/.installer/config.env"
+MANGOS_FINAL_STATE_DIR="$MANGOS_DEFAULT_INSTALL_ROOT/.installer/state"
+if [[ -z "${MANGOS_CONFIG_FILE:-}" ]]; then
+  if [[ -f "$MANGOS_FINAL_CONFIG" ]]; then
+    MANGOS_CONFIG_FILE="$MANGOS_FINAL_CONFIG"
+    MANGOS_STATE_FILE="${MANGOS_STATE_FILE:-$MANGOS_FINAL_STATE_DIR/global.state}"
+  else
+    MANGOS_CONFIG_FILE="$MANGOS_BOOTSTRAP_STAGING/config.env"
+    MANGOS_STATE_FILE="${MANGOS_STATE_FILE:-$MANGOS_BOOTSTRAP_STAGING/state/global.state}"
+  fi
+fi
 MANGOS_SECRETS_FILE="${MANGOS_SECRETS_FILE:-$MANGOS_SECRETS_DIR/secrets.env}"
-MANGOS_STATE_FILE="${MANGOS_STATE_FILE:-$MANGOS_BOOTSTRAP_STAGING/state/global.state}"
 mkdir -p -- "$(dirname -- "$MANGOS_STATE_FILE")"
 export MANGOS_CONFIG_FILE MANGOS_SECRETS_FILE MANGOS_STATE_FILE
 
@@ -74,9 +86,23 @@ if [[ -n "${MANGOS_TMPDIR_TO_CLEANUP:-}" ]]; then
   trap 'rm -rf -- "$MANGOS_TMPDIR_TO_CLEANUP"' EXIT
 fi
 
-log_info "runner started; flow=${MANGOS_FLOW:-fresh-install} dev_mode=${MANGOS_DEV_MODE:-0} non_interactive=${MANGOS_NONINTERACTIVE:-0}"
+# Pick a default flow: menu if an install already exists, fresh-install
+# otherwise. Explicit --flow= (propagated via MANGOS_FLOW) wins.
+if [[ -z "${MANGOS_FLOW:-}" ]]; then
+  if [[ -f "$MANGOS_FINAL_CONFIG" ]]; then
+    MANGOS_FLOW="menu"
+  else
+    MANGOS_FLOW="fresh-install"
+  fi
+fi
+export MANGOS_ROOT="${MANGOS_ROOT:-$MANGOS_DEFAULT_INSTALL_ROOT}"
 
-case "${MANGOS_FLOW:-fresh-install}" in
+log_info "runner started; flow=${MANGOS_FLOW} dev_mode=${MANGOS_DEV_MODE:-0} non_interactive=${MANGOS_NONINTERACTIVE:-0}"
+
+case "${MANGOS_FLOW}" in
+  menu)
+    # shellcheck source=../flows/menu.sh
+    . "$MANGOS_INSTALLER_DIR/flows/menu.sh" ;;
   fresh-install)
     # shellcheck source=../flows/fresh-install.sh
     . "$MANGOS_INSTALLER_DIR/flows/fresh-install.sh" ;;
