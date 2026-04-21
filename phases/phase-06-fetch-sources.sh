@@ -24,19 +24,22 @@ run_phase_06() {
   : "${MANGOS_REALM_NAME:?MANGOS_REALM_NAME not set}"
   : "${MANGOS_REALM_CORE:?MANGOS_REALM_CORE not set}"
 
-  local ref
+  local ref db_ref
   ref=$(_phase_06_resolve_ref)
-  ui_status_ok "MaNGOS ref: ${ref}"
+  db_ref=$(_phase_06_resolve_db_ref "$ref")
+  ui_status_ok "MaNGOS ref: ${ref}  DB ref: ${db_ref}"
 
   local realm_dir="$MANGOS_ROOT/$MANGOS_REALM_NAME"
   local src="${realm_dir}/source"
   local dbr="${realm_dir}/database"
 
   _phase_06_clone_or_update "$MANGOS_ZERO_REPO"    "$src" "$ref"
-  _phase_06_clone_or_update "$MANGOS_ZERO_DB_REPO" "$dbr" "$ref"
+  _phase_06_clone_or_update "$MANGOS_ZERO_DB_REPO" "$dbr" "$db_ref"
 
-  config_set "REALM_${MANGOS_REALM_NAME}_MANGOS_REF" "$ref"
+  config_set "REALM_${MANGOS_REALM_NAME}_MANGOS_REF"    "$ref"
+  config_set "REALM_${MANGOS_REALM_NAME}_MANGOS_DB_REF" "$db_ref"
   export MANGOS_REALM_MANGOS_REF="$ref"
+  export MANGOS_REALM_MANGOS_DB_REF="$db_ref"
 
   state_mark_complete "$MANGOS_CURRENT_PHASE"
   ui_status_ok "source + database trees ready"
@@ -61,6 +64,44 @@ _phase_06_resolve_ref() {
     ref="$MANGOS_FALLBACK_REF"
   fi
   printf '%s\n' "$ref"
+}
+
+# Resolve the database ref: the DB repo has its own release cadence and may
+# not carry the same tag as the server. Strategy:
+#   1. Check if the server ref exists as a tag in the DB repo (API tags list).
+#   2. If not, query the DB repo's own latest release.
+#   3. If that also fails, fall back to MANGOS_FALLBACK_REF then HEAD.
+_phase_06_resolve_db_ref() {
+  local server_ref="$1"
+
+  # Fast path: check if the DB repo has the exact same tag via the tags API.
+  local tags_json
+  if tags_json=$(curl -fsSL --max-time 15 \
+      "https://api.github.com/repos/mangoszero/database/tags?per_page=100" \
+      2>>"$MANGOS_LOG_FILE"); then
+    if printf '%s\n' "$tags_json" | grep -q "\"${server_ref}\""; then
+      printf '%s\n' "$server_ref"
+      return 0
+    fi
+  fi
+
+  # DB doesn't have the server tag — use its own latest release.
+  local api_json ref=""
+  if api_json=$(curl -fsSL --max-time 15 "$MANGOS_ZERO_DB_RELEASES_API" \
+      2>>"$MANGOS_LOG_FILE"); then
+    ref=$(printf '%s\n' "$api_json" \
+      | sed -nE 's/.*"tag_name": *"([^"]+)".*/\1/p' \
+      | head -n 1)
+  fi
+  if [[ -n "$ref" ]]; then
+    log_warn "DB repo has no tag '${server_ref}'; using its own latest release: ${ref}"
+    printf '%s\n' "$ref"
+    return 0
+  fi
+
+  # Last resort: fall back to the same fallback ref as the server.
+  log_warn "DB releases API also failed; using fallback ref ${MANGOS_FALLBACK_REF}"
+  printf '%s\n' "$MANGOS_FALLBACK_REF"
 }
 
 # Idempotent: clones if missing, fetches+checks-out if present, updates

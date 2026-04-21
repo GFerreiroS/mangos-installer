@@ -15,6 +15,7 @@ readonly INSTALLER_VERSION="1.0.0"
 readonly MANGOS_ZERO_REPO="https://github.com/mangoszero/server"
 readonly MANGOS_ZERO_DB_REPO="https://github.com/mangoszero/database"
 readonly MANGOS_ZERO_RELEASES_API="https://api.github.com/repos/mangoszero/server/releases/latest"
+readonly MANGOS_ZERO_DB_RELEASES_API="https://api.github.com/repos/mangoszero/database/releases/latest"
 
 # --- OpenSSL sidecar ---
 readonly OPENSSL_SIDECAR_VERSION="1.1.1w"
