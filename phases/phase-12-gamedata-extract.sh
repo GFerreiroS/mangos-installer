@@ -166,7 +166,21 @@ _phase_12_run_mmaps_generator() {
     die "mmap-extractor missing; re-run the installer (phase 9 will re-copy tools)"
   }
   rm -rf -- "$gd/mmaps"
-  _phase_12_run_in_gd "$gd" "mmap-extractor" "$bin"
+
+  # MoveMapGen.sh parallelises extraction across up to 4 cores.
+  # Prefer it over the raw binary when available.
+  local cores
+  cores=$(nproc 2>/dev/null || echo 1)
+  (( cores > 4 )) && cores=4
+
+  local wrapper="$gd/MoveMapGen.sh"
+  if [[ -x "$wrapper" ]]; then
+    ui_status_info "mmap-extractor: using MoveMapGen.sh with $cores core(s)"
+    _phase_12_run_in_gd "$gd" "mmap-extractor" "$wrapper" "$cores"
+  else
+    ui_status_info "mmap-extractor: MoveMapGen.sh not found, running single-threaded"
+    _phase_12_run_in_gd "$gd" "mmap-extractor" "$bin"
+  fi
 }
 
 _phase_12_verify() {
