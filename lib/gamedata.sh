@@ -9,6 +9,9 @@
 # vmap-extractor, mmaps_generator) run in the realm gamedata/ dir and
 # walk Data/ to produce dbc/ maps/ vmaps/ mmaps/ outputs next to it.
 
+# MPQs the 1.12.x map/vmap extractors open by name (from mangoszero extractor source).
+_gamedata_required_mpqs_zero=( "base.MPQ" "dbc.MPQ" "misc.MPQ" "model.MPQ" "sound.MPQ"
+                               "terrain.MPQ" "texture.MPQ" "wmo.MPQ" "patch.MPQ" "patch-2.MPQ" )
 # Expansion MPQs that must NOT be present for core 'zero'.
 _gamedata_forbidden_mpqs_zero=( "expansion.MPQ" "lichking.MPQ" "expansion1.MPQ" "expansion2.MPQ" "expansion3.MPQ" )
 
@@ -63,19 +66,30 @@ gamedata_validate_structure() {
   [[ -d "$data_dir" ]] || data_dir=$(find "$client_root" -maxdepth 1 -type d -iname 'Data' | head -n 1)
   [[ -d "$data_dir" ]] || { log_error "no Data/ directory at $client_root"; return 1; }
 
-  # Log what MPQs are present for diagnostic purposes.
-  local found_mpqs mpq_count forbidden_found="" mpq
-  found_mpqs=$(find "$data_dir" -maxdepth 1 -type f -iname '*.MPQ' 2>/dev/null | sort)
-  mpq_count=$(printf '%s\n' "$found_mpqs" | grep -c . 2>/dev/null || true)
-  if [[ "${mpq_count:-0}" -eq 0 ]]; then
-    log_error "Data/ directory exists but contains no .MPQ files: $data_dir"
+  local mpq missing="" forbidden_found=""
+  local -n req_ref="_gamedata_required_mpqs_${core}"
+  local -n forb_ref="_gamedata_forbidden_mpqs_${core}"
+
+  for mpq in "${req_ref[@]}"; do
+    if ! find "$data_dir" -maxdepth 1 -type f -iname "$mpq" -print -quit 2>/dev/null | grep -q .; then
+      missing+=" $mpq"
+    fi
+  done
+  if [[ -n "$missing" ]]; then
+    log_error "gamedata missing required MPQs for core '$core':$missing"
+    local found_mpqs
+    found_mpqs=$(find "$data_dir" -maxdepth 1 -type f -iname '*.MPQ' 2>/dev/null | sort)
+    if [[ -n "$found_mpqs" ]]; then
+      log_error "MPQs present in Data/:"
+      while IFS= read -r f; do log_error "  $(basename -- "$f")"; done <<< "$found_mpqs"
+    else
+      log_error "no .MPQ files found in $data_dir"
+    fi
     return 1
   fi
-  log_info "found $mpq_count MPQ file(s) in $data_dir"
 
-  local -n forb_ref="_gamedata_forbidden_mpqs_${core}"
   for mpq in "${forb_ref[@]}"; do
-    if find "$data_dir" -maxdepth 1 -type f -iname "$mpq" -print -quit | grep -q .; then
+    if find "$data_dir" -maxdepth 1 -type f -iname "$mpq" -print -quit 2>/dev/null | grep -q .; then
       forbidden_found+=" $mpq"
     fi
   done
