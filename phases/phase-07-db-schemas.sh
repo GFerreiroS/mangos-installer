@@ -100,6 +100,23 @@ _phase_07_populate_world() {
   _phase_07_apply_dir "$db" "$tree/Updates"  "update"
 }
 
+# Import a SQL file into <db> after stripping user-management statements.
+# Upstream setup files (realmdCreateDB.sql etc.) contain hardcoded
+# CREATE USER / GRANT lines that conflict with the installer-managed user
+# created in phase 05. We own user setup; ignore it from schema files.
+_phase_07_import_filtered() {
+  local db="$1" file="$2"
+  local cli
+  cli=$(db_client) || return 1
+  [[ -r "$file" ]] || { log_error "_phase_07_import_filtered: not readable: $file"; return 1; }
+  local base_args=( -h "${MANGOS_DB_HOST:-localhost}" -P "${MANGOS_DB_PORT:-3306}"
+                    -u "${MANGOS_DB_ADMIN_USER:-mangos}" "$db" )
+  grep -Eiv \
+    '^\s*(CREATE|DROP)\s+USER\b|^\s*GRANT\s|^\s*REVOKE\s|^\s*FLUSH\s+PRIVILEGES' \
+    "$file" \
+  | MYSQL_PWD="${MANGOS_DB_ADMIN_PASSWORD:-}" "$cli" "${base_args[@]}"
+}
+
 # Apply all .sql files in <dir>, sorted lexically, to <db>. Update-kind
 # applications consult/record the migration-tracking table so the same
 # file is never re-applied.
@@ -114,7 +131,7 @@ _phase_07_apply_dir() {
       continue
     fi
     ui_status_info "${kind}: $(basename -- "$f") -> $db"
-    if ! db_import_admin "$db" "$f" >>"$MANGOS_LOG_FILE" 2>&1; then
+    if ! _phase_07_import_filtered "$db" "$f" >>"$MANGOS_LOG_FILE" 2>&1; then
       if [[ "$kind" == "update" ]]; then
         log_warn "update may have failed (possibly already applied): $f"
       else
