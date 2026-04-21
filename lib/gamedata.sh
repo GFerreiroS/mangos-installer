@@ -41,6 +41,18 @@ gamedata_validate_structure() {
   local client_root data_dir
   client_root=$(gamedata_find_data_dir "$path") || {
     log_error "no Data/common.MPQ found under $path (searched 4 levels deep)"
+    log_error "directory tree under $path (3 levels):"
+    find "$path" -maxdepth 3 -type d 2>/dev/null | sort | while IFS= read -r d; do
+      log_error "  dir: ${d#"$path/"}"
+    done
+    local found_mpqs
+    found_mpqs=$(find "$path" -maxdepth 5 -type f -iname '*.MPQ' 2>/dev/null | sort)
+    if [[ -n "$found_mpqs" ]]; then
+      log_error "MPQ files found:"
+      while IFS= read -r f; do log_error "  $f"; done <<< "$found_mpqs"
+    else
+      log_error "no .MPQ files found anywhere under $path"
+    fi
     return 1
   }
   data_dir="${client_root}/Data"
@@ -64,6 +76,14 @@ gamedata_validate_structure() {
 
   if [[ -n "$missing" ]]; then
     log_error "gamedata missing required MPQs for core '$core':$missing"
+    local found_mpqs
+    found_mpqs=$(find "$data_dir" -maxdepth 1 -type f -iname '*.MPQ' 2>/dev/null | sort)
+    if [[ -n "$found_mpqs" ]]; then
+      log_error "MPQs present in Data/:"
+      while IFS= read -r f; do log_error "  $(basename -- "$f")"; done <<< "$found_mpqs"
+    else
+      log_error "no .MPQ files found in $data_dir"
+    fi
     return 1
   fi
   if [[ -n "$forbidden_found" ]]; then
