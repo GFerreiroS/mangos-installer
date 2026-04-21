@@ -86,31 +86,12 @@ _phase_11_from_url() {
   local url
   url=$(config_get GAMEDATA_URL)
 
-  while true; do
-    if [[ -s "$dest" ]]; then
-      ui_status_ok "archive already on disk: $dest"
-      break
-    fi
+  local staging="$gd/.extract"
 
-    if [[ ! -f "$pidfile" ]]; then
-      [[ -n "$url" ]] || die "GAMEDATA_URL not set and no archive at $dest"
-      ui_status_info "starting download: $url"
-      rm -f -- "${dest}.part"
-      download_background "$url" "$dest" "$pidfile"
-    fi
-
-    ui_status_info "waiting for download to finish (stalls >60s will fail automatically)..."
-    local rc
-    rc=$(download_wait "$pidfile")
-    rm -f -- "$pidfile" "${pidfile}.exit"
-
-    if [[ "${rc:-1}" == "0" ]]; then
-      ui_status_ok "download complete: $dest"
-      break
-    fi
-
-    ui_status_warn "download failed or stalled (exit=$rc)"
-    if ui_prompt_yes_no "change the download URL and retry?" "no" "MANGOS_CHANGE_GAMEDATA_URL"; then
+  _phase_11_prompt_new_url() {
+    local reason="$1"
+    ui_status_warn "$reason"
+    if ui_prompt_yes_no "provide a different URL and retry?" "no" "MANGOS_CHANGE_GAMEDATA_URL"; then
       url=$(ui_prompt_text "new gamedata URL" "" "MANGOS_GAMEDATA_URL")
       [[ -n "$url" ]] || die "URL cannot be empty"
       local proto_status=0
@@ -124,33 +105,65 @@ _phase_11_from_url() {
       fi
       config_set GAMEDATA_URL "$url"
       rm -f -- "${dest}.part" "$dest"
+      rm -rf -- "$staging"
     else
-      die "download failed; re-run the installer to retry"
+      die "gamedata unavailable; re-run the installer to retry"
     fi
+  }
+
+  while true; do
+    # ---- download ----
+    if [[ ! -s "$dest" ]]; then
+      if [[ ! -f "$pidfile" ]]; then
+        [[ -n "$url" ]] || die "GAMEDATA_URL not set and no archive at $dest"
+        ui_status_info "starting download: $url"
+        rm -f -- "${dest}.part"
+        download_background "$url" "$dest" "$pidfile"
+      fi
+
+      ui_status_info "waiting for download to finish (stalls >60s will fail automatically)..."
+      local rc
+      rc=$(download_wait "$pidfile")
+      rm -f -- "$pidfile" "${pidfile}.exit"
+
+      if [[ "${rc:-1}" != "0" ]]; then
+        _phase_11_prompt_new_url "download failed or stalled (exit=$rc)"
+        continue
+      fi
+      ui_status_ok "download complete: $dest"
+    else
+      ui_status_ok "archive already on disk: $dest"
+    fi
+
+    # ---- extract ----
+    rm -rf -- "$staging"
+    install -d -m 0755 -o "$MANGOS_USER" -g "$MANGOS_USER" -- "$staging"
+    ui_status_info "extracting archive..."
+    if ! archive_extract "$dest" "$staging"; then
+      rm -f -- "$dest"
+      rm -rf -- "$staging"
+      _phase_11_prompt_new_url "archive extraction failed — file may be corrupt"
+      continue
+    fi
+    chown -R "$MANGOS_USER:$MANGOS_USER" -- "$staging"
+
+    # ---- validate ----
+    ui_status_info "validating extracted client..."
+    if ! gamedata_validate_structure "$staging" "$core"; then
+      rm -f -- "$dest"
+      rm -rf -- "$staging"
+      _phase_11_prompt_new_url "gamedata validation failed (see log for required MPQ list)"
+      continue
+    fi
+
+    break
   done
-
-  # Extract into a staging dir under gamedata/, then relocate Data/.
-  local staging="$gd/.extract"
-  rm -rf -- "$staging"
-  install -d -m 0755 -o "$MANGOS_USER" -g "$MANGOS_USER" -- "$staging"
-
-  ui_status_info "extracting archive..."
-  archive_extract "$dest" "$staging" || die "archive extraction failed"
-  chown -R "$MANGOS_USER:$MANGOS_USER" -- "$staging"
-
-  ui_status_info "validating extracted client..."
-  if ! gamedata_validate_structure "$staging" "$core"; then
-    die "extracted gamedata failed validation; see log for details"
-  fi
 
   ui_status_info "moving Data/ into $gd/Data/ ..."
   gamedata_move_to_realm "$MANGOS_GAMEDATA_CLIENT_ROOT" "$MANGOS_REALM_NAME" \
     || die "failed to move gamedata into $gd/Data"
 
-  # Cleanup: we moved Data/ out of staging, the remainder is the raw archive
-  # plus whatever wrapper directories the upload had.
   rm -rf -- "$staging"
-  # Keep the downloaded archive in case of re-run (re-extraction is cheap).
   ui_status_ok "gamedata in place"
 }
 
