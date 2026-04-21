@@ -25,7 +25,9 @@ download_file() {
   if [[ -f "$dest" ]] && [[ ! -f "$part" ]]; then
     cp -f -- "$dest" "$part"
   fi
-  curl -fL --retry 3 --retry-delay 5 --retry-connrefused -C - -o "$part" -- "$url"
+  curl -fL --retry 3 --retry-delay 5 --retry-connrefused \
+    --connect-timeout 15 --speed-limit 1 --speed-time 60 \
+    -C - -o "$part" -- "$url"
   mv -- "$part" "$dest"
 }
 

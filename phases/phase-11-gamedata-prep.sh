@@ -83,32 +83,51 @@ _phase_11_from_url() {
   [[ -n "$dest"    ]] || die "GAMEDATA_DOWNLOAD_DEST not set (phase 0 must run first)"
   [[ -n "$pidfile" ]] || die "GAMEDATA_DOWNLOAD_PIDFILE not set (phase 0 must run first)"
 
-  if [[ -s "$dest" ]]; then
-    ui_status_ok "archive already on disk: $dest"
-  elif [[ -f "$pidfile" ]]; then
-    ui_status_info "waiting for background download to finish..."
+  local url
+  url=$(config_get GAMEDATA_URL)
+
+  while true; do
+    if [[ -s "$dest" ]]; then
+      ui_status_ok "archive already on disk: $dest"
+      break
+    fi
+
+    if [[ ! -f "$pidfile" ]]; then
+      [[ -n "$url" ]] || die "GAMEDATA_URL not set and no archive at $dest"
+      ui_status_info "starting download: $url"
+      rm -f -- "${dest}.part"
+      download_background "$url" "$dest" "$pidfile"
+    fi
+
+    ui_status_info "waiting for download to finish (stalls >60s will fail automatically)..."
     local rc
     rc=$(download_wait "$pidfile")
-    if [[ "${rc:-1}" != "0" ]]; then
-      die "background download failed (exit=$rc); see $MANGOS_LOG_FILE"
+    rm -f -- "$pidfile" "${pidfile}.exit"
+
+    if [[ "${rc:-1}" == "0" ]]; then
+      ui_status_ok "download complete: $dest"
+      break
     fi
-    ui_status_ok "download complete: $dest"
-  else
-    # Pidfile gone (session restart or bootstrap staging cleared) and no
-    # archive on disk — restart the download and wait for it now.
-    local url
-    url=$(config_get GAMEDATA_URL)
-    [[ -n "$url" ]] || die "GAMEDATA_URL not set and no archive at $dest"
-    ui_status_info "restarting download (previous session ended): $url"
-    download_background "$url" "$dest" "$pidfile"
-    ui_status_info "waiting for download to finish..."
-    local rc
-    rc=$(download_wait "$pidfile")
-    if [[ "${rc:-1}" != "0" ]]; then
-      die "background download failed (exit=$rc); see $MANGOS_LOG_FILE"
+
+    ui_status_warn "download failed or stalled (exit=$rc)"
+    if ui_prompt_yes_no "change the download URL and retry?" "no" "MANGOS_CHANGE_GAMEDATA_URL"; then
+      url=$(ui_prompt_text "new gamedata URL" "" "MANGOS_GAMEDATA_URL")
+      [[ -n "$url" ]] || die "URL cannot be empty"
+      local proto_status=0
+      download_validate_protocol "$url" || proto_status=$?
+      if [[ "$proto_status" -eq 1 ]]; then
+        ui_status_warn "URL uses an insecure protocol (http/ftp)"
+        ui_prompt_yes_no "continue with insecure URL?" "no" "MANGOS_ALLOW_INSECURE_URL" \
+          || die "aborted"
+      elif [[ "$proto_status" -gt 1 ]]; then
+        die "unsupported URL protocol in '$url'"
+      fi
+      config_set GAMEDATA_URL "$url"
+      rm -f -- "${dest}.part" "$dest"
+    else
+      die "download failed; re-run the installer to retry"
     fi
-    ui_status_ok "download complete: $dest"
-  fi
+  done
 
   # Extract into a staging dir under gamedata/, then relocate Data/.
   local staging="$gd/.extract"
