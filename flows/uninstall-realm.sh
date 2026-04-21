@@ -49,7 +49,7 @@ _uninstall_realm_final_backup() {
   ts=$(date -u +'%Y%m%d-%H%M%S')
   local bdir="$MANGOS_ROOT/$REALM/backups"
   install -d -m 0755 -o "$MANGOS_USER" -g "$MANGOS_USER" -- "$bdir"
-  _phase_05_load_admin_password || true
+  db_load_admin_password || true
   local kind db out
   for kind in DB_AUTH DB_CHAR DB_WORLD; do
     db=$(config_get "REALM_${REALM}_${kind}")
@@ -86,7 +86,7 @@ _uninstall_realm_stop_services() {
 }
 
 _uninstall_realm_drop_dbs() {
-  _phase_05_load_admin_password || true
+  db_load_admin_password || true
   local db_char db_world db_auth
   db_char=$(config_get "REALM_${REALM}_DB_CHAR")
   db_world=$(config_get "REALM_${REALM}_DB_WORLD")

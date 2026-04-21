@@ -167,6 +167,18 @@ db_migration_record() {
   " >>"${MANGOS_LOG_FILE:-/dev/null}" 2>&1 || true
 }
 
+# db_load_admin_password — populate MANGOS_DB_ADMIN_PASSWORD from secrets.env
+# if not already set. Called by phase 5, the uninstall flows, and any other
+# context that needs the DB password without running phase 5 first.
+db_load_admin_password() {
+  if [[ -z "${MANGOS_DB_ADMIN_PASSWORD:-}" ]]; then
+    MANGOS_DB_ADMIN_PASSWORD=$(secrets_get DB_ADMIN_PASSWORD)
+  fi
+  [[ -n "$MANGOS_DB_ADMIN_PASSWORD" ]] \
+    || die "DB admin password missing from secrets.env (phase 0 should have set it)"
+  export MANGOS_DB_ADMIN_PASSWORD
+}
+
 # db_wait_ready [<timeout-seconds>] — poll until the server accepts a
 # trivial query or the timeout elapses.
 db_wait_ready() {

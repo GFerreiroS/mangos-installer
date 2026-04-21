@@ -29,7 +29,7 @@ run_phase_05() {
   fi
 
   privilege_require_root
-  _phase_05_load_admin_password
+  db_load_admin_password
 
   if [[ "${MANGOS_DB_MODE:-local}" == "local" ]]; then
     _phase_05_local
@@ -38,17 +38,6 @@ run_phase_05() {
   fi
 
   state_mark_complete "$MANGOS_CURRENT_PHASE"
-}
-
-# --- shared ------------------------------------------------------------------
-
-_phase_05_load_admin_password() {
-  if [[ -z "${MANGOS_DB_ADMIN_PASSWORD:-}" ]]; then
-    MANGOS_DB_ADMIN_PASSWORD=$(secrets_get DB_ADMIN_PASSWORD)
-  fi
-  [[ -n "$MANGOS_DB_ADMIN_PASSWORD" ]] \
-    || die "DB admin password missing from secrets.env (phase 0 should have set it)"
-  export MANGOS_DB_ADMIN_PASSWORD
 }
 
 # --- local mode --------------------------------------------------------------

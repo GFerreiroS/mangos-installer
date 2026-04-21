@@ -93,12 +93,14 @@ _menu_prompt() {
     6) ui_status_info "bye."; exit 0 ;;
   esac
   export MANGOS_FLOW
-
-  # shellcheck disable=SC1090
-  . "$MANGOS_INSTALLER_DIR/flows/${MANGOS_FLOW}.sh"
 }
 
 # ---------------------------------------------------------------------------
 
 _menu_summary || true
 _menu_prompt
+
+# Dispatch the chosen flow at top level (outside any function) to avoid
+# bash 5.x pop_var_context corruption when sourcing scripts inside a function.
+# shellcheck disable=SC1090
+[[ -n "${MANGOS_FLOW:-}" ]] && . "$MANGOS_INSTALLER_DIR/flows/${MANGOS_FLOW}.sh"
