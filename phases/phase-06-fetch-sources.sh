@@ -27,7 +27,7 @@ run_phase_06() {
   local ref db_ref
   ref=$(_phase_06_resolve_ref)
   db_ref=$(_phase_06_resolve_db_ref "$ref")
-  ui_status_ok "MaNGOS ref: ${ref}  DB ref: ${db_ref}"
+  ui_status_ok "MaNGOS ref: ${ref}  DB ref: ${db_ref:-default branch}"
 
   local realm_dir="$MANGOS_ROOT/$MANGOS_REALM_NAME"
   local src="${realm_dir}/source"
@@ -99,9 +99,9 @@ _phase_06_resolve_db_ref() {
     return 0
   fi
 
-  # Last resort: fall back to the same fallback ref as the server.
-  log_warn "DB releases API also failed; using fallback ref ${MANGOS_FALLBACK_REF}"
-  printf '%s\n' "$MANGOS_FALLBACK_REF"
+  # Last resort: clone the default branch.
+  log_warn "DB repo has no usable release tag; will clone its default branch"
+  printf '%s\n' ""
 }
 
 # Idempotent: clones if missing, fetches+checks-out if present, updates
@@ -121,12 +121,20 @@ if [[ -d "\$dest/.git" ]]; then
   cd "\$dest"
   git remote set-url origin "\$repo_url"
   git fetch --tags --prune origin
-  git checkout --force "\$ref"
+  if [[ -n "\$ref" ]]; then
+    git checkout --force "\$ref"
+  else
+    git checkout --force "\$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || echo main)"
+  fi
   git submodule sync --recursive
   git submodule update --init --recursive
 else
   rm -rf -- "\$dest"
-  git clone --recursive --branch "\$ref" "\$repo_url" "\$dest"
+  if [[ -n "\$ref" ]]; then
+    git clone --recursive --branch "\$ref" "\$repo_url" "\$dest"
+  else
+    git clone --recursive "\$repo_url" "\$dest"
+  fi
 fi
 GIT
   chmod 0755 -- "$script"
