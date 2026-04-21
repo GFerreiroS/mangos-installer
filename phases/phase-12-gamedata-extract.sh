@@ -166,21 +166,66 @@ _phase_12_run_mmaps_generator() {
     die "mmap-extractor missing; re-run the installer (phase 9 will re-copy tools)"
   }
   rm -rf -- "$gd/mmaps"
+  mkdir -p -- "$gd/mmaps"
 
-  # MoveMapGen.sh parallelises extraction across up to 4 cores.
-  # Prefer it over the raw binary when available.
   local cores
   cores=$(nproc 2>/dev/null || echo 1)
-  (( cores > 4 )) && cores=4
 
-  local wrapper="$gd/MoveMapGen.sh"
-  if [[ -x "$wrapper" ]]; then
-    ui_status_info "mmap-extractor: using MoveMapGen.sh with $cores core(s)"
-    _phase_12_run_in_gd "$gd" "mmap-extractor" "$wrapper" "$cores"
-  else
-    ui_status_info "mmap-extractor: MoveMapGen.sh not found, running single-threaded"
-    _phase_12_run_in_gd "$gd" "mmap-extractor" "$bin"
+  # Collect unique map IDs from maps/*.map filenames (MMMTT.map → MMM).
+  local -a unique_ids=()
+  local f id
+  while IFS= read -r -d '' f; do
+    id=$(basename -- "$f")
+    id=${id%.map}
+    id=${id%%_*}
+    id=$(( 10#$id ))   # strip leading zeros
+    unique_ids+=("$id")
+  done < <(find "$gd/maps" -maxdepth 1 -name '*.map' -print0 2>/dev/null)
+  # Sort + deduplicate in-place
+  local deduped
+  deduped=$(printf '%s\n' "${unique_ids[@]}" | sort -un)
+  mapfile -t unique_ids <<< "$deduped"
+
+  if [[ ${#unique_ids[@]} -eq 0 ]]; then
+    die "no map files found in $gd/maps (map-extractor must run first)"
   fi
+  ui_status_info "mmap-extractor: ${#unique_ids[@]} maps, $cores parallel worker(s)"
+
+  local offmesh_arg=""
+  [[ -f "$gd/offmesh.txt" ]] && offmesh_arg="--offMeshInput offmesh.txt"
+
+  # FIFO semaphore: pre-load $cores tokens; each worker consumes one on
+  # start and returns one on finish, keeping exactly $cores jobs active.
+  local fifo fail_dir start_ts
+  fifo=$(mktemp -u --tmpdir "mi-mmap-fifo.XXXXXX")
+  fail_dir=$(mktemp -d --tmpdir "mi-mmap-fail.XXXXXX")
+  mkfifo "$fifo"
+  exec 3<>"$fifo"
+  local i; for ((i=0; i<cores; i++)); do printf 'x' >&3; done
+  start_ts=$(date +%s)
+
+  for id in "${unique_ids[@]}"; do
+    read -r -n1 -u3       # acquire token
+    (
+      set +e
+      cd "$gd"
+      # shellcheck disable=SC2086
+      "$bin" $offmesh_arg "$id" >>"$MANGOS_LOG_FILE" 2>&1 \
+        || touch "$fail_dir/$id"
+      printf 'x' >&3      # release token
+    ) &
+  done
+  wait
+  exec 3>&-
+  rm -f "$fifo"
+
+  local failed elapsed
+  failed=$(find "$fail_dir" -maxdepth 1 -type f 2>/dev/null | wc -l)
+  rm -rf "$fail_dir"
+  elapsed=$(( $(date +%s) - start_ts ))
+
+  [[ $failed -gt 0 ]] && log_warn "mmap-extractor: $failed map(s) had errors (see log)"
+  ui_status_ok "mmap-extractor: ${#unique_ids[@]} maps in ${elapsed}s ($failed failed)"
 }
 
 _phase_12_verify() {
