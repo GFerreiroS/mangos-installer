@@ -83,13 +83,32 @@ _phase_11_from_url() {
   [[ -n "$dest"    ]] || die "GAMEDATA_DOWNLOAD_DEST not set (phase 0 must run first)"
   [[ -n "$pidfile" ]] || die "GAMEDATA_DOWNLOAD_PIDFILE not set (phase 0 must run first)"
 
-  ui_status_info "waiting for background download to finish..."
-  local rc
-  rc=$(download_wait "$pidfile")
-  if [[ "${rc:-1}" != "0" ]]; then
-    die "background download failed (exit=$rc); see $MANGOS_LOG_FILE"
+  if [[ -s "$dest" ]]; then
+    ui_status_ok "archive already on disk: $dest"
+  elif [[ -f "$pidfile" ]]; then
+    ui_status_info "waiting for background download to finish..."
+    local rc
+    rc=$(download_wait "$pidfile")
+    if [[ "${rc:-1}" != "0" ]]; then
+      die "background download failed (exit=$rc); see $MANGOS_LOG_FILE"
+    fi
+    ui_status_ok "download complete: $dest"
+  else
+    # Pidfile gone (session restart or bootstrap staging cleared) and no
+    # archive on disk — restart the download and wait for it now.
+    local url
+    url=$(config_get GAMEDATA_URL)
+    [[ -n "$url" ]] || die "GAMEDATA_URL not set and no archive at $dest"
+    ui_status_info "restarting download (previous session ended): $url"
+    download_background "$url" "$dest" "$pidfile"
+    ui_status_info "waiting for download to finish..."
+    local rc
+    rc=$(download_wait "$pidfile")
+    if [[ "${rc:-1}" != "0" ]]; then
+      die "background download failed (exit=$rc); see $MANGOS_LOG_FILE"
+    fi
+    ui_status_ok "download complete: $dest"
   fi
-  ui_status_ok "download complete: $dest"
 
   # Extract into a staging dir under gamedata/, then relocate Data/.
   local staging="$gd/.extract"
