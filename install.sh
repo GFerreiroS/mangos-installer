@@ -147,12 +147,6 @@ for cmd in curl tar; do
 done
 boot_info "[OK] sanity (root, bash ${BASH_VERSINFO[0]}.${BASH_VERSINFO[1]}, curl, tar)"
 
-# --- Re-attach stdin to /dev/tty if piped, so prompts work ---
-if [[ ! -t 0 ]] && [[ -e /dev/tty ]] && [[ -r /dev/tty ]]; then
-  exec </dev/tty
-  _boot_log INFO "re-attached stdin from /dev/tty"
-fi
-
 # --- Quick OS/arch sanity (libs not loaded yet) ---
 if [[ ! -f /etc/os-release ]]; then
   boot_die "cannot detect OS: /etc/os-release missing"

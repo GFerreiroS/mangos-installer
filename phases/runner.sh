@@ -10,6 +10,13 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+# Re-attach stdin to /dev/tty so interactive prompts work when the bootstrap
+# was piped (curl | bash). Safe here because runner.sh is read from a file,
+# not from stdin, so replacing fd 0 does not affect script reading.
+if [[ ! -t 0 ]] && [[ -e /dev/tty ]] && [[ -r /dev/tty ]]; then
+  exec </dev/tty
+fi
+
 MANGOS_INSTALLER_DIR="${MANGOS_INSTALLER_DIR:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)}"
 export MANGOS_INSTALLER_DIR
 
