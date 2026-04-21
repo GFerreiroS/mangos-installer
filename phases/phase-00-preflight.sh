@@ -228,7 +228,6 @@ _preflight_persist_answers() {
   mkdir -p -- "$(dirname -- "$MANGOS_CONFIG_FILE")"
   secrets_init
 
-  config_set INSTALLER_VERSION "$INSTALLER_VERSION"
   config_set INSTALLER_SCHEMA  "1"
   config_set MANGOS_USER       "$MANGOS_DEFAULT_USER"
   config_set MANGOS_ROOT       "$MANGOS_DEFAULT_INSTALL_ROOT"

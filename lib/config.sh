@@ -11,10 +11,23 @@
 config_load() {
   local cf="${MANGOS_CONFIG_FILE:-}"
   [[ -n "$cf" ]] && [[ -f "$cf" ]] || return 0
+  # Source via a filtered temp file: skip keys that are already declared
+  # readonly (e.g. INSTALLER_VERSION from constants.sh) so sourcing does
+  # not abort on "readonly variable" errors when re-running the installer.
+  local tmp key line
+  tmp=$(mktemp)
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    key="${line%%=*}"
+    if declare -p "$key" 2>/dev/null | grep -q ' -[[:alpha:]]*r'; then
+      continue
+    fi
+    printf '%s\n' "$line" >> "$tmp"
+  done < "$cf"
   set -a
   # shellcheck disable=SC1090
-  . "$cf"
+  . "$tmp"
   set +a
+  rm -f -- "$tmp"
   log_debug "loaded config from $cf"
 }
 
