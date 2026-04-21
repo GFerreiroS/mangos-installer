@@ -106,42 +106,44 @@ gamedata_validate_structure() {
 }
 
 # gamedata_move_to_realm <source-client-root> <realm>
-# Moves (or symlinks) <source>/Data into <realm_dir>/gamedata/Data.
-# Prefers a rename (mv) when on the same filesystem; falls back to a
-# recursive copy otherwise. Skips cleanly if Data/ already lives in the
-# realm gamedata dir.
+# Moves the entire WoW client root contents into <realm_dir>/gamedata/ so
+# that WoW.exe and Data/ are both present there. The MaNGOS extractors detect
+# the client version by scanning for WoW.exe in their working directory.
+# Prefers rename (mv) when on the same filesystem; falls back to recursive
+# copy. Skips cleanly if Data/ is already populated at the destination.
 gamedata_move_to_realm() {
   local source="$1" realm="${2:-$MANGOS_REALM_NAME}"
   local realm_dir="$MANGOS_ROOT/$realm"
-  local target="$realm_dir/gamedata/Data"
+  local gd="$realm_dir/gamedata"
 
   [[ -n "$source" ]] || { log_error "gamedata_move_to_realm: no source"; return 1; }
   [[ -d "$source/Data" ]] || {
-    # source may already be a Data/ dir
-    if [[ -f "$source/common.MPQ" ]] || [[ -f "$source/Common.MPQ" ]]; then
-      source="$(dirname -- "$source")"
-    else
-      log_error "gamedata_move_to_realm: $source/Data not found"
-      return 1
-    fi
+    log_error "gamedata_move_to_realm: $source/Data not found"
+    return 1
   }
 
-  install -d -m 0755 -o "$MANGOS_USER" -g "$MANGOS_USER" -- "$realm_dir/gamedata"
+  install -d -m 0755 -o "$MANGOS_USER" -g "$MANGOS_USER" -- "$gd"
 
-  if [[ -d "$target" ]] && [[ -n "$(ls -A -- "$target" 2>/dev/null)" ]]; then
-    log_info "gamedata Data/ already present at $target — leaving in place"
+  if [[ -d "$gd/Data" ]] && [[ -n "$(ls -A -- "$gd/Data" 2>/dev/null)" ]]; then
+    log_info "gamedata Data/ already present at $gd/Data — leaving in place"
     return 0
   fi
 
-  # If source is under /home/mangos (same fs as target) try rename first.
-  if mv -- "$source/Data" "$target" 2>/dev/null; then
-    log_info "gamedata: renamed $source/Data -> $target"
-  else
-    log_info "gamedata: copying $source/Data -> $target (cross-filesystem)"
-    cp -a -- "$source/Data" "$target" || return 1
-  fi
-  chown -R "$MANGOS_USER:$MANGOS_USER" -- "$target"
-  return 0
+  # Move every entry in the client root into gamedata/.
+  # This includes WoW.exe (needed by extractors) and Data/.
+  local f failed=0
+  while IFS= read -r -d '' f; do
+    local dest="$gd/$(basename -- "$f")"
+    if mv -- "$f" "$dest" 2>/dev/null; then
+      log_info "gamedata: moved $(basename -- "$f") -> $gd/"
+    else
+      log_info "gamedata: copying $(basename -- "$f") -> $gd/ (cross-filesystem)"
+      cp -a -- "$f" "$dest" || { log_error "gamedata_move_to_realm: copy failed: $f"; failed=1; }
+    fi
+  done < <(find "$source" -maxdepth 1 -mindepth 1 -print0 2>/dev/null)
+
+  chown -R "$MANGOS_USER:$MANGOS_USER" -- "$gd"
+  return "$failed"
 }
 
 # gamedata_extract_products_exist <realm_gamedata_dir>

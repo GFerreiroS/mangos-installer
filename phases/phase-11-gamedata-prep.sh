@@ -23,10 +23,11 @@ run_phase_11() {
   local gd="$realm_dir/gamedata"
   local target="$gd/Data"
 
-  # Idempotence: if Data/ already populated and passes validation, done.
+  # Idempotence: Data/ populated + WoW.exe present (extractors need it).
   if state_has_completed "$MANGOS_CURRENT_PHASE" \
      && [[ -d "$target" ]] \
-     && [[ -n "$(find "$target" -maxdepth 1 -type f -iname '*.MPQ' -print -quit 2>/dev/null)" ]]; then
+     && [[ -n "$(find "$target" -maxdepth 1 -type f -iname '*.MPQ' -print -quit 2>/dev/null)" ]] \
+     && [[ -f "$gd/WoW.exe" || -f "$gd/wow" || -f "$gd/Wow.exe" ]]; then
     ui_status_ok "already done — skipping"
     return 0
   fi
