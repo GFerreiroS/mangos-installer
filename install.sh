@@ -198,7 +198,8 @@ if [[ -z "$INSTALLER_DIR" ]]; then
       "${INSTALLER_TARBALL_URL}/v${INSTALLER_VERSION}.tar.gz" \
       "$INSTALLER_TARBALL_MAIN"; do
     boot_info "fetching: $url"
-    if curl -fsSL --retry 3 --retry-delay 5 -o "$TARBALL_PATH" -- "$url" 2>>"$BOOT_LOG_FILE"; then
+    if curl -fL --progress-bar --retry 3 --retry-delay 5 --max-time 120 --connect-timeout 15 \
+         -o "$TARBALL_PATH" -- "$url"; then
       fetched=1
       _boot_log INFO "fetched ok: $url"
       break
