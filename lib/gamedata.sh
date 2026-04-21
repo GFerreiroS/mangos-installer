@@ -9,25 +9,29 @@
 # vmap-extractor, mmaps_generator) run in the realm gamedata/ dir and
 # walk Data/ to produce dbc/ maps/ vmaps/ mmaps/ outputs next to it.
 
-# Sentinel + required MPQ set for each supported core.
-_gamedata_required_mpqs_zero=( "common.MPQ" "common-2.MPQ" "patch.MPQ" "patch-2.MPQ" "patch-3.MPQ" )
+# Expansion MPQs that must NOT be present for core 'zero'.
 _gamedata_forbidden_mpqs_zero=( "expansion.MPQ" "lichking.MPQ" "expansion1.MPQ" "expansion2.MPQ" "expansion3.MPQ" )
 
-# gamedata_find_data_dir <root> — walk up to 3 levels under <root> and
-# print the first directory that contains Data/common.MPQ. Returns
-# non-zero if nothing found.
+# gamedata_find_data_dir <root> — walk up to 4 levels under <root> and
+# print the first directory named Data/ that contains at least one .MPQ file.
+# Custom/repack clients (SoloCraft, RetroWoW) don't ship common.MPQ by name
+# but still have all vanilla data split across other MPQs — the extractor
+# opens all *.mpq files and doesn't require specific names.
 gamedata_find_data_dir() {
   local root="$1"
   [[ -d "$root" ]] || return 1
   local hit
-  hit=$(find "$root" -maxdepth 4 -type f -iname "common.MPQ" -printf '%h\n' 2>/dev/null | head -n 1)
+  # Prefer a Data/ dir that has any .MPQ file directly inside it.
+  hit=$(find "$root" -maxdepth 4 -type d -iname 'Data' -print0 2>/dev/null \
+        | while IFS= read -r -d '' d; do
+            if find "$d" -maxdepth 1 -type f -iname '*.MPQ' -print -quit 2>/dev/null | grep -q .; then
+              printf '%s\n' "$d"
+              break
+            fi
+          done | head -n 1)
   [[ -z "$hit" ]] && return 1
-  # Strip trailing /Data (case-insensitive) to return the client root,
-  # not the Data/ dir itself.
-  case "$hit" in
-    */[Dd][Aa][Tt][Aa]) printf '%s\n' "${hit%/*}" ;;
-    *)                  printf '%s\n' "$hit"      ;;
-  esac
+  # Return the client root (parent of Data/).
+  printf '%s\n' "${hit%/*}"
 }
 
 # gamedata_validate_structure <path> [<core>] — checks that <path>
@@ -40,7 +44,7 @@ gamedata_validate_structure() {
 
   local client_root data_dir
   client_root=$(gamedata_find_data_dir "$path") || {
-    log_error "no Data/common.MPQ found under $path (searched 4 levels deep)"
+    log_error "no Data/ directory with .MPQ files found under $path (searched 4 levels deep)"
     log_error "directory tree under $path (3 levels):"
     find "$path" -maxdepth 3 -type d 2>/dev/null | sort | while IFS= read -r d; do
       log_error "  dir: ${d#"$path/"}"
@@ -48,7 +52,7 @@ gamedata_validate_structure() {
     local found_mpqs
     found_mpqs=$(find "$path" -maxdepth 5 -type f -iname '*.MPQ' 2>/dev/null | sort)
     if [[ -n "$found_mpqs" ]]; then
-      log_error "MPQ files found:"
+      log_error "MPQ files found (not in a Data/ dir):"
       while IFS= read -r f; do log_error "  $f"; done <<< "$found_mpqs"
     else
       log_error "no .MPQ files found anywhere under $path"
@@ -59,35 +63,24 @@ gamedata_validate_structure() {
   [[ -d "$data_dir" ]] || data_dir=$(find "$client_root" -maxdepth 1 -type d -iname 'Data' | head -n 1)
   [[ -d "$data_dir" ]] || { log_error "no Data/ directory at $client_root"; return 1; }
 
-  local required forbidden mpq missing="" forbidden_found=""
-  local -n req_ref="_gamedata_required_mpqs_${core}"
-  local -n forb_ref="_gamedata_forbidden_mpqs_${core}"
+  # Log what MPQs are present for diagnostic purposes.
+  local found_mpqs mpq_count forbidden_found="" mpq
+  found_mpqs=$(find "$data_dir" -maxdepth 1 -type f -iname '*.MPQ' 2>/dev/null | sort)
+  mpq_count=$(printf '%s\n' "$found_mpqs" | grep -c . 2>/dev/null || true)
+  if [[ "${mpq_count:-0}" -eq 0 ]]; then
+    log_error "Data/ directory exists but contains no .MPQ files: $data_dir"
+    return 1
+  fi
+  log_info "found $mpq_count MPQ file(s) in $data_dir"
 
-  for mpq in "${req_ref[@]}"; do
-    if ! find "$data_dir" -maxdepth 1 -type f -iname "$mpq" -print -quit | grep -q .; then
-      missing+=" $mpq"
-    fi
-  done
+  local -n forb_ref="_gamedata_forbidden_mpqs_${core}"
   for mpq in "${forb_ref[@]}"; do
     if find "$data_dir" -maxdepth 1 -type f -iname "$mpq" -print -quit | grep -q .; then
       forbidden_found+=" $mpq"
     fi
   done
-
-  if [[ -n "$missing" ]]; then
-    log_error "gamedata missing required MPQs for core '$core':$missing"
-    local found_mpqs
-    found_mpqs=$(find "$data_dir" -maxdepth 1 -type f -iname '*.MPQ' 2>/dev/null | sort)
-    if [[ -n "$found_mpqs" ]]; then
-      log_error "MPQs present in Data/:"
-      while IFS= read -r f; do log_error "  $(basename -- "$f")"; done <<< "$found_mpqs"
-    else
-      log_error "no .MPQ files found in $data_dir"
-    fi
-    return 1
-  fi
   if [[ -n "$forbidden_found" ]]; then
-    log_error "gamedata contains MPQs that do not belong to core '$core':$forbidden_found"
+    log_error "gamedata contains expansion MPQs not compatible with core '$core':$forbidden_found"
     return 1
   fi
 

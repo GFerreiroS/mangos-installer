@@ -25,7 +25,8 @@ run_phase_11() {
 
   # Idempotence: if Data/ already populated and passes validation, done.
   if state_has_completed "$MANGOS_CURRENT_PHASE" \
-     && [[ -d "$target" ]] && [[ -f "$target/common.MPQ" || -f "$target/Common.MPQ" ]]; then
+     && [[ -d "$target" ]] \
+     && [[ -n "$(find "$target" -maxdepth 1 -type f -iname '*.MPQ' -print -quit 2>/dev/null)" ]]; then
     ui_status_ok "already done — skipping"
     return 0
   fi
@@ -180,7 +181,7 @@ _phase_11_manual_stop() {
   install -d -m 0755 -o "$MANGOS_USER" -g "$MANGOS_USER" -- "$gd/Data"
 
   # Already populated? Validate and continue.
-  if [[ -f "$gd/Data/common.MPQ" ]] || [[ -f "$gd/Data/Common.MPQ" ]]; then
+  if [[ -n "$(find "$gd/Data" -maxdepth 1 -type f -iname '*.MPQ' -print -quit 2>/dev/null)" ]]; then
     ui_status_info "validating client files at $gd/Data/..."
     if gamedata_validate_structure "$gd" "$core"; then
       ui_status_ok "gamedata in place"
@@ -190,10 +191,9 @@ _phase_11_manual_stop() {
   fi
 
   ui_status_warn "manual gamedata mode selected."
-  ui_status_info "place your WoW 1.12.x client MPQs at:"
+  ui_status_info "place your WoW 1.12.x client Data/ MPQs at:"
   ui_status_info "  $gd/Data/"
-  ui_status_info "the directory must contain: common.MPQ, common-2.MPQ, patch.MPQ,"
-  ui_status_info "patch-2.MPQ, patch-3.MPQ, and <locale>/locale-<locale>.MPQ"
+  ui_status_info "any standard 1.12.x client layout is accepted (vanilla or repack)"
   ui_status_info "(expansion.MPQ / lichking.MPQ must NOT be present for core 'zero')"
   ui_status_info ""
   ui_status_info "once placed, re-run the installer to continue:"
