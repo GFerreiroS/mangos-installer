@@ -65,7 +65,7 @@ _uninstall_all_remove_units() {
         ui_status_ok "removed $f"
       fi
     done
-    (( changed )) && systemctl daemon-reload
+    if (( changed )); then systemctl daemon-reload; fi
   else
     log_warn "no systemd; nothing to unregister"
   fi
@@ -102,12 +102,34 @@ _uninstall_all_prompt_user_removal() {
   fi
 }
 
+_uninstall_all_remove_installer_state() {
+  # Remove config.env and state files so the next run starts fresh instead
+  # of dropping back into the management menu.
+  local f
+  for f in "${MANGOS_CONFIG_FILE:-}" "${MANGOS_STATE_FILE:-}"; do
+    [[ -n "$f" ]] && [[ -f "$f" ]] && rm -f -- "$f" && ui_status_ok "removed $f"
+  done
+  # Remove the bootstrap staging dir (holds early-run config and state).
+  if [[ -d "$MANGOS_BOOTSTRAP_STAGING" ]]; then
+    rm -rf -- "$MANGOS_BOOTSTRAP_STAGING"
+    ui_status_ok "removed $MANGOS_BOOTSTRAP_STAGING"
+  fi
+  # Remove the .installer dir under the install root if it is now empty or
+  # contains only the logs subdir (user may want to keep logs).
+  local inst_dir="${MANGOS_ROOT:-$MANGOS_DEFAULT_INSTALL_ROOT}/.installer"
+  if [[ -d "$inst_dir" ]]; then
+    find "$inst_dir" -mindepth 1 -maxdepth 1 ! -name logs -exec rm -rf -- {} + 2>/dev/null || true
+    rmdir -- "$inst_dir" 2>/dev/null || true
+  fi
+}
+
 # ---------------------------------------------------------------------------
 
 _uninstall_all_confirm
 _uninstall_all_realms
 _uninstall_all_remove_units
 _uninstall_all_remove_secrets
+_uninstall_all_remove_installer_state
 _uninstall_all_prompt_user_removal
 
 ui_print_banner "uninstall complete"
