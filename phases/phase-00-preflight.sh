@@ -273,5 +273,5 @@ _preflight_persist_answers() {
 # 24 chars of [A-Za-z0-9], sufficient for auto-generated DB admin passwords.
 _generate_password() {
   local len="${1:-24}"
-  LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "$len"
+  LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "$len" || true
 }
