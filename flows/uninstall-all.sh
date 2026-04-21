@@ -109,10 +109,13 @@ _uninstall_all_remove_installer_state() {
   for f in "${MANGOS_CONFIG_FILE:-}" "${MANGOS_STATE_FILE:-}"; do
     [[ -n "$f" ]] && [[ -f "$f" ]] && rm -f -- "$f" && ui_status_ok "removed $f"
   done
-  # Remove the bootstrap staging dir (holds early-run config and state).
+  # Remove the bootstrap staging dir, but preserve the downloads/ subdir
+  # (gamedata archives can be several GB and are expensive to re-download).
   if [[ -d "$MANGOS_BOOTSTRAP_STAGING" ]]; then
-    rm -rf -- "$MANGOS_BOOTSTRAP_STAGING"
-    ui_status_ok "removed $MANGOS_BOOTSTRAP_STAGING"
+    find "$MANGOS_BOOTSTRAP_STAGING" -mindepth 1 -maxdepth 1 \
+      ! -name downloads -exec rm -rf -- {} + 2>/dev/null || true
+    rmdir -- "$MANGOS_BOOTSTRAP_STAGING" 2>/dev/null || true
+    ui_status_ok "removed $MANGOS_BOOTSTRAP_STAGING (downloads/ kept)"
   fi
   # Remove the .installer dir under the install root if it is now empty or
   # contains only the logs subdir (user may want to keep logs).
