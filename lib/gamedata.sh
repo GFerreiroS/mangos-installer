@@ -124,20 +124,22 @@ gamedata_move_to_realm() {
 
   install -d -m 0755 -o "$MANGOS_USER" -g "$MANGOS_USER" -- "$gd"
 
-  if [[ -d "$gd/Data" ]] && [[ -n "$(ls -A -- "$gd/Data" 2>/dev/null)" ]]; then
-    log_info "gamedata Data/ already present at $gd/Data — leaving in place"
-    return 0
-  fi
-
-  # Move every entry in the client root into gamedata/.
-  # This includes WoW.exe (needed by extractors) and Data/.
-  local f failed=0
+  # Move every entry in the client root into gamedata/ (Data/, WoW.exe, etc).
+  # Skip individual entries that already exist at the destination so this is
+  # safe to call repeatedly (Data/ may already be in place from a prior run
+  # while WoW.exe is still missing).
+  local f name dest failed=0
   while IFS= read -r -d '' f; do
-    local dest="$gd/$(basename -- "$f")"
+    name=$(basename -- "$f")
+    dest="$gd/$name"
+    if [[ -e "$dest" ]]; then
+      log_info "gamedata: $name already at $dest — leaving in place"
+      continue
+    fi
     if mv -- "$f" "$dest" 2>/dev/null; then
-      log_info "gamedata: moved $(basename -- "$f") -> $gd/"
+      log_info "gamedata: moved $name -> $gd/"
     else
-      log_info "gamedata: copying $(basename -- "$f") -> $gd/ (cross-filesystem)"
+      log_info "gamedata: copying $name -> $gd/ (cross-filesystem)"
       cp -a -- "$f" "$dest" || { log_error "gamedata_move_to_realm: copy failed: $f"; failed=1; }
     fi
   done < <(find "$source" -maxdepth 1 -mindepth 1 -print0 2>/dev/null)
