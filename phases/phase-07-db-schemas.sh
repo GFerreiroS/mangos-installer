@@ -141,7 +141,7 @@ _phase_07_apply_dir() {
     fi
     [[ "$kind" == "update" ]] && db_migration_record "$db" "$key"
     applied=$(( applied + 1 ))
-  done < <(find "$dir" -maxdepth 2 -type f -name '*.sql' -print0 2>/dev/null | sort -z)
+  done < <(find "$dir" -maxdepth 1 -type f -name '*.sql' -print0 2>/dev/null | sort -z)
   if (( applied > 0 )) || (( skipped > 0 )); then
     ui_status_ok "applied $applied / skipped $skipped ${kind} file(s) to $db"
   fi
@@ -153,7 +153,9 @@ _phase_07_apply_dir() {
 _phase_07_apply_world_data() {
   local db="$1" tree="$2"
   local dir
-  for dir in "$tree/Full_DB" "$tree/FullDB" "$tree/full_db"; do
+  for dir in \
+      "$tree/Full_DB" "$tree/FullDB" "$tree/full_db" \
+      "$tree/Setup/Full_DB" "$tree/Setup/FullDB" "$tree/Setup/full_db"; do
     if [[ -d "$dir" ]]; then
       _phase_07_apply_dir "$db" "$dir" "world-data"
       return 0
