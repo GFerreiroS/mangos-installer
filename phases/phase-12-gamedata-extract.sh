@@ -37,8 +37,8 @@ run_phase_12() {
   fi
 
   [[ -d "$gd/Data" ]] || die "gamedata/Data not present (phase 11 must run first)"
-  [[ -f "$gd/Data/common.MPQ" || -f "$gd/Data/Common.MPQ" ]] \
-    || die "gamedata/Data missing common.MPQ (phase 11 must run first)"
+  find "$gd/Data" -maxdepth 1 -type f -iname '*.MPQ' -print -quit 2>/dev/null \
+    | grep -q . || die "gamedata/Data contains no .MPQ files (phase 11 must run first)"
 
   _phase_12_make_writable "$gd"
 
