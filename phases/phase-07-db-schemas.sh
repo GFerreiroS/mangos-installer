@@ -101,9 +101,10 @@ _phase_07_populate_world() {
 }
 
 # Import a SQL file into <db> after stripping user-management statements.
-# Upstream setup files (realmdCreateDB.sql etc.) contain hardcoded
-# CREATE USER / GRANT lines that conflict with the installer-managed user
-# created in phase 05. We own user setup; ignore it from schema files.
+# Upstream setup files contain hardcoded CREATE DATABASE, USE, CREATE USER,
+# and GRANT statements. We own DB creation (phase 07) and user setup (phase
+# 05), so strip those lines — the mysql client is already connected to the
+# correct DB via the command-line argument.
 _phase_07_import_filtered() {
   local db="$1" file="$2"
   local cli
@@ -112,7 +113,7 @@ _phase_07_import_filtered() {
   local base_args=( -h "${MANGOS_DB_HOST:-localhost}" -P "${MANGOS_DB_PORT:-3306}"
                     -u "${MANGOS_DB_ADMIN_USER:-mangos}" "$db" )
   grep -Eiv \
-    '^\s*(CREATE|DROP)\s+USER\b|^\s*GRANT\s|^\s*REVOKE\s|^\s*FLUSH\s+PRIVILEGES' \
+    '^\s*(CREATE|DROP)\s+(DATABASE|USER)\b|^\s*USE\s+|^\s*GRANT\s|^\s*REVOKE\s|^\s*FLUSH\s+PRIVILEGES' \
     "$file" \
   | MYSQL_PWD="${MANGOS_DB_ADMIN_PASSWORD:-}" "$cli" "${base_args[@]}"
 }
