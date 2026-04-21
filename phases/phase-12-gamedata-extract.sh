@@ -137,6 +137,8 @@ _phase_12_run_map_extractor() {
   local bin
   bin=$(_phase_12_pick_bin "$gd" map-extractor MapExtractor) \
     || { log_warn "no map-extractor binary; skipping"; return 0; }
+  # Clean outputs from any previous partial run to avoid interactive prompts.
+  rm -rf -- "$gd/dbc" "$gd/maps"
   _phase_12_run_in_gd "$gd" "map-extractor" "$bin"
 }
 
@@ -145,6 +147,9 @@ _phase_12_run_vmap_extractor() {
   local ext asm
   ext=$(_phase_12_pick_bin "$gd" vmap-extractor VmapExtractor vmap_extractor) \
     || { log_warn "no vmap-extractor binary; skipping"; return 0; }
+  # vmap-extractor aborts if Buildings/ or vmaps/ already exist (left by a
+  # previous partial run) and waits for keyboard input. Always clean first.
+  rm -rf -- "$gd/Buildings" "$gd/vmaps"
   _phase_12_run_in_gd "$gd" "vmap-extractor" "$ext"
 
   if asm=$(_phase_12_pick_bin "$gd" vmap_assembler vmap-assembler VmapAssembler 2>/dev/null); then
