@@ -29,7 +29,7 @@ run_phase_07() {
     return 0
   fi
 
-  _phase_05_load_admin_password  # re-use: pulls from secrets if needed
+  db_load_admin_password  # re-use: pulls from secrets if needed
 
   : "${MANGOS_REALM_NAME:?MANGOS_REALM_NAME not set}"
   local realm_dir="$MANGOS_ROOT/$MANGOS_REALM_NAME"

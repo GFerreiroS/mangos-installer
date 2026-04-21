@@ -81,7 +81,7 @@ _update_backup_dbs() {
   UPDATE_BACKUP_DIR="$MANGOS_ROOT/$UPDATE_REALM/backups"
   install -d -m 0755 -o "$MANGOS_USER" -g "$MANGOS_USER" -- "$UPDATE_BACKUP_DIR"
   local db kind
-  _phase_05_load_admin_password
+  db_load_admin_password
   for kind in DB_AUTH DB_CHAR DB_WORLD; do
     db=$(config_get "REALM_${UPDATE_REALM}_${kind}")
     [[ -z "$db" ]] && continue
@@ -159,7 +159,7 @@ _update_apply_db_updates() {
   local char_db world_db
   char_db=$(config_get "REALM_${UPDATE_REALM}_DB_CHAR")
   world_db=$(config_get "REALM_${UPDATE_REALM}_DB_WORLD")
-  _phase_05_load_admin_password
+  db_load_admin_password
 
   # Use phase-7's apply helper so the migration-tracking table in each
   # DB ensures previously-applied update files are skipped.
@@ -212,7 +212,7 @@ ROLL
 
   if (( UPDATE_PRE_BACKUPS_DONE )); then
     ui_status_info "restoring DB dumps from $UPDATE_BACKUP_DIR..."
-    _phase_05_load_admin_password
+    db_load_admin_password
     local kind db dump
     for kind in DB_AUTH DB_CHAR DB_WORLD; do
       db=$(config_get "REALM_${UPDATE_REALM}_${kind}")

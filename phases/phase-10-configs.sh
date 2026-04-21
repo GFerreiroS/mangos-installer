@@ -29,7 +29,7 @@ run_phase_10() {
   fi
 
   mangos_user_exists || die "mangos user missing (phase 1 must run first)"
-  _phase_05_load_admin_password  # ensure MANGOS_DB_ADMIN_PASSWORD populated
+  db_load_admin_password  # ensure MANGOS_DB_ADMIN_PASSWORD populated
 
   : "${MANGOS_REALM_NAME:?MANGOS_REALM_NAME not set}"
   local realm_dir="$MANGOS_ROOT/$MANGOS_REALM_NAME"
