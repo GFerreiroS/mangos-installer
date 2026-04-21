@@ -109,13 +109,10 @@ _uninstall_all_remove_installer_state() {
   for f in "${MANGOS_CONFIG_FILE:-}" "${MANGOS_STATE_FILE:-}"; do
     [[ -n "$f" ]] && [[ -f "$f" ]] && rm -f -- "$f" && ui_status_ok "removed $f"
   done
-  # Remove the bootstrap staging dir, but preserve the downloads/ subdir
-  # (gamedata archives can be several GB and are expensive to re-download).
+  # Remove the bootstrap staging dir entirely (including cached downloads).
   if [[ -d "$MANGOS_BOOTSTRAP_STAGING" ]]; then
-    find "$MANGOS_BOOTSTRAP_STAGING" -mindepth 1 -maxdepth 1 \
-      ! -name downloads -exec rm -rf -- {} + 2>/dev/null || true
-    rmdir -- "$MANGOS_BOOTSTRAP_STAGING" 2>/dev/null || true
-    ui_status_ok "removed $MANGOS_BOOTSTRAP_STAGING (downloads/ kept)"
+    rm -rf -- "$MANGOS_BOOTSTRAP_STAGING"
+    ui_status_ok "removed $MANGOS_BOOTSTRAP_STAGING"
   fi
   # Remove the .installer dir under the install root if it is now empty or
   # contains only the logs subdir (user may want to keep logs).
@@ -123,6 +120,55 @@ _uninstall_all_remove_installer_state() {
   if [[ -d "$inst_dir" ]]; then
     find "$inst_dir" -mindepth 1 -maxdepth 1 ! -name logs -exec rm -rf -- {} + 2>/dev/null || true
     rmdir -- "$inst_dir" 2>/dev/null || true
+  fi
+}
+
+_uninstall_all_prompt_packages() {
+  # MariaDB — only offer removal when we installed the server locally.
+  local db_pkgs=()
+  if dpkg -l mariadb-server 2>/dev/null | grep -q '^ii'; then
+    db_pkgs+=( mariadb-server mariadb-server-core* mariadb-common )
+  fi
+  if dpkg -l mariadb-client 2>/dev/null | grep -q '^ii'; then
+    db_pkgs+=( mariadb-client mariadb-client-core* )
+  fi
+  if [[ ${#db_pkgs[@]} -gt 0 ]]; then
+    ui_status_info ""
+    if ui_prompt_yes_no "remove MariaDB (mariadb-server + client)? this DROPS ALL DATA not already removed" \
+                        "no" "MANGOS_REMOVE_MARIADB"; then
+      DEBIAN_FRONTEND=noninteractive apt-get purge -y --auto-remove \
+        -- "${db_pkgs[@]}" >>"$MANGOS_LOG_FILE" 2>&1 \
+        && ui_status_ok "MariaDB removed" \
+        || ui_status_warn "MariaDB removal had errors (see log)"
+    fi
+  fi
+
+  # Build / MaNGOS-specific packages installed by phase-02 and phase-04.
+  # Excluded: git curl wget ca-certificates python3 net-tools gdb zip unzip
+  # — those are common system tools the user likely had before or wants.
+  local build_pkgs=(
+    cmake build-essential
+    libssl-dev libbz2-dev
+    default-libmysqlclient-dev
+    libace-dev libreadline-dev liblua5.2-dev
+    gcc-11 g++-11 gcc-12 g++-12 gcc-13 g++-13 gcc-14 g++-14
+  )
+  # Filter to only those actually installed.
+  local installed_build=()
+  local p
+  for p in "${build_pkgs[@]}"; do
+    dpkg -l "$p" 2>/dev/null | grep -q '^ii' && installed_build+=( "$p" )
+  done
+  if [[ ${#installed_build[@]} -gt 0 ]]; then
+    ui_status_info ""
+    ui_status_info "build packages installed by the installer: ${installed_build[*]}"
+    if ui_prompt_yes_no "remove build/dev packages? (cmake, build-essential, libssl-dev, etc.)" \
+                        "no" "MANGOS_REMOVE_BUILD_PKGS"; then
+      DEBIAN_FRONTEND=noninteractive apt-get purge -y --auto-remove \
+        -- "${installed_build[@]}" >>"$MANGOS_LOG_FILE" 2>&1 \
+        && ui_status_ok "build packages removed" \
+        || ui_status_warn "some packages could not be removed (see log)"
+    fi
   fi
 }
 
@@ -134,9 +180,7 @@ _uninstall_all_remove_units
 _uninstall_all_remove_secrets
 _uninstall_all_remove_installer_state
 _uninstall_all_prompt_user_removal
+_uninstall_all_prompt_packages
 
 ui_print_banner "uninstall complete"
-ui_status_info "apt packages (cmake, mariadb-server, etc.) were NOT removed;"
-ui_status_info "they may be used by other software on this host. remove manually"
-ui_status_info "with 'apt-get remove' if you know they are no longer needed."
 ui_status_info "installer log: $MANGOS_LOG_FILE"
