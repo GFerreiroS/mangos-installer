@@ -40,18 +40,15 @@ run_phase_09() {
   # and offmesh.txt for pathfinding. We copy whatever exists.
   local tools_src="$install_prefix/bin/tools"
   if [[ -d "$tools_src" ]]; then
-    local copied=0
-    local f
-    for f in "$tools_src"/*-extractor "$tools_src"/*.sh "$tools_src"/offmesh.txt; do
-      [[ -e "$f" ]] || continue
-      local base
+    local copied=0 f base mode
+    while IFS= read -r -d '' f; do
       base=$(basename -- "$f")
-      local mode=0755
-      [[ "$base" == *.txt ]] && mode=0644
+      mode=0755
+      [[ "$base" == *.txt || "$base" == *.conf || "$base" == *.conf.dist ]] && mode=0644
       install -m "$mode" -o "$MANGOS_USER" -g "$MANGOS_USER" \
         -- "$f" "$gamedata_out/$base"
       copied=$(( copied + 1 ))
-    done
+    done < <(find "$tools_src" -maxdepth 1 -type f -print0 2>/dev/null)
     ui_status_ok "installed $copied extractor file(s) to $gamedata_out"
   else
     log_warn "no tools/ directory at $tools_src; phase 12 may fail without extractors"

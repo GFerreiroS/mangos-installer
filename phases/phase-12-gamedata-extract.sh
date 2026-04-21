@@ -155,8 +155,11 @@ _phase_12_run_vmap_extractor() {
 _phase_12_run_mmaps_generator() {
   local gd="$1"
   local bin
-  bin=$(_phase_12_pick_bin "$gd" mmaps_generator MoveMapGen MoveMapGenerator) \
-    || { log_warn "no mmaps_generator binary; skipping"; return 0; }
+  bin=$(_phase_12_pick_bin "$gd" mmaps_generator MoveMapGen MoveMapGenerator) || {
+    ui_status_warn "mmaps_generator not found in $gd — resetting phase 9 to re-copy tools"
+    state_reset "phase-09-install-binaries"
+    die "mmaps_generator missing; re-run the installer (phase 9 will re-copy tools)"
+  }
   # `--offMeshInput` is honoured when offmesh.txt sits in CWD; script places
   # it there in phase 9 so no extra flag is needed.
   _phase_12_run_in_gd "$gd" "mmaps_generator" "$bin"
