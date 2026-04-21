@@ -40,6 +40,7 @@ download_background() {
   rm -f -- "$exitfile"
   (
     set +e
+    mkdir -p -- "$(dirname -- "$exitfile")"
     download_file "$url" "$dest" >>"${MANGOS_LOG_FILE:-/dev/null}" 2>&1
     printf '%d\n' "$?" > "$exitfile"
   ) &
